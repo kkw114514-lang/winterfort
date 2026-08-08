@@ -1,0 +1,35 @@
+﻿Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio 2012
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "rouge-2.0", "rouge-2.0.csproj", "{CE3F10FE-3DE9-438D-8EDE-93F56368FAE6}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Kernel", "..\src\Kernel\Kernel.csproj", "{875C360D-0D6D-4B32-897F-55D47D9E313E}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Kernel.Headless", "..\src\Kernel.Headless\Kernel.Headless.csproj", "{7DF58424-AC5C-4549-A8D5-4FB414E054C8}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		ExportDebug|Any CPU = ExportDebug|Any CPU
+		ExportRelease|Any CPU = ExportRelease|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{CE3F10FE-3DE9-438D-8EDE-93F56368FAE6}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{CE3F10FE-3DE9-438D-8EDE-93F56368FAE6}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{CE3F10FE-3DE9-438D-8EDE-93F56368FAE6}.ExportDebug|Any CPU.ActiveCfg = ExportDebug|Any CPU
+		{CE3F10FE-3DE9-438D-8EDE-93F56368FAE6}.ExportDebug|Any CPU.Build.0 = ExportDebug|Any CPU
+		{CE3F10FE-3DE9-438D-8EDE-93F56368FAE6}.ExportRelease|Any CPU.ActiveCfg = ExportRelease|Any CPU
+		{CE3F10FE-3DE9-438D-8EDE-93F56368FAE6}.ExportRelease|Any CPU.Build.0 = ExportRelease|Any CPU
+		{875C360D-0D6D-4B32-897F-55D47D9E313E}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{875C360D-0D6D-4B32-897F-55D47D9E313E}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{875C360D-0D6D-4B32-897F-55D47D9E313E}.ExportDebug|Any CPU.ActiveCfg = Debug|Any CPU
+		{875C360D-0D6D-4B32-897F-55D47D9E313E}.ExportDebug|Any CPU.Build.0 = Debug|Any CPU
+		{875C360D-0D6D-4B32-897F-55D47D9E313E}.ExportRelease|Any CPU.ActiveCfg = Debug|Any CPU
+		{875C360D-0D6D-4B32-897F-55D47D9E313E}.ExportRelease|Any CPU.Build.0 = Debug|Any CPU
+		{7DF58424-AC5C-4549-A8D5-4FB414E054C8}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{7DF58424-AC5C-4549-A8D5-4FB414E054C8}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{7DF58424-AC5C-4549-A8D5-4FB414E054C8}.ExportDebug|Any CPU.ActiveCfg = Debug|Any CPU
+		{7DF58424-AC5C-4549-A8D5-4FB414E054C8}.ExportDebug|Any CPU.Build.0 = Debug|Any CPU
+		{7DF58424-AC5C-4549-A8D5-4FB414E054C8}.ExportRelease|Any CPU.ActiveCfg = Debug|Any CPU
+		{7DF58424-AC5C-4549-A8D5-4FB414E054C8}.ExportRelease|Any CPU.Build.0 = Debug|Any CPU
+	EndGlobalSection
+EndGlobal
