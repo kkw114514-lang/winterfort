@@ -21,6 +21,10 @@ public sealed class TestDummyMonster : MonsterModel
 {
     public override int MinInitialHp => 40;
     public override int MaxInitialHp => 44;
+    
+    /// <summary>木桩不出招：意图恒为问号，TakeTurn 对 Unknown 无操作。</summary>
+    protected override MonsterMove RollMove(Rng ai, CombatState state)
+        => new MonsterMove { Name = "IDLE", Kind = IntentKind.Unknown };
 }
 
 /// <summary>测试不死：一票否决自己主人的死亡，被否决时回 1 血并计数。</summary>

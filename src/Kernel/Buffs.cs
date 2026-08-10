@@ -1,4 +1,5 @@
 using System;
+using System.Threading.Tasks;
 
 namespace Kernel;
 
@@ -44,6 +45,14 @@ public sealed class SearBuff : BuffModel
         if (levels < 0) throw new ArgumentException("必须非负", nameof(levels));
         Level = Math.Min(MaxLevel, Level + levels);
     }
+    
+    /// <summary>规则③：敌方回合结束，层数 −= 等级；规则④（归零整条消失、等级蒸发）由归零移除承担。</summary>
+    public override async Task AfterTurnEnd(CombatSide side)
+    {
+        if (side != CombatSide.Enemy) return;
+        if (Owner?.CombatState is not { } state) return;
+        await BuffCmd.ChangeAmount(state, this, -Level, null);
+    }
 
     public override string Describe() => $"灼伤{RomanLevel}·{Amount}";
 
@@ -60,6 +69,14 @@ public sealed class WeakenBuff : BuffModel
         if (dealer != Owner) return 1m;
         if (!props.IsPoweredAttack()) return 1m;
         return 0.75m;
+    }
+    
+    /// <summary>敌方回合结束 -1 层（同 STS2 虚弱节奏）。</summary>
+    public override async Task AfterTurnEnd(CombatSide side)
+    {
+        if (side != CombatSide.Enemy) return;
+        if (Owner?.CombatState is not { } state) return;
+        await BuffCmd.ChangeAmount(state, this, -1, null);
     }
 }
 

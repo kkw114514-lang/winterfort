@@ -19,16 +19,21 @@ public enum CardRarity
     Special,    // 红 —— 仅特殊场景，不进常规掉落
 }
 
+/// <summary>
+/// 卡牌系别。[Flags]：为双系卡（如水火）预留——单系卡照旧传单值。
+/// 判定纪律：永远用 HasElement，禁止 ==（双系卡会让 == 静默漏判）。
+/// </summary>
+[Flags]
 public enum CardElement
 {
-    Basic,      // B 通用基石 —— 不进任何掉落池，只作起始卡组素材
-    Fire,       // F 火
-    Water,      // W 水
-    Grass,      // G 草
-    Light,      // L 光
-    Dark,       // D 暗
+    None  = 0,        // flags 卫生位。构造时禁止（见 CardModel 构造断言）
+    Basic = 1 << 0,   // B 通用基石——不进掉落池，只作起始卡组素材。与其他系互斥
+    Fire  = 1 << 1,   // F 火
+    Water = 1 << 2,   // W 水
+    Grass = 1 << 3,   // G 草
+    Light = 1 << 4,   // L 光
+    Dark  = 1 << 5,   // D 暗
 }
-
 /// <summary>
 /// 卡牌关键词：【引擎读它】，它改变这张卡怎么被对待。
 /// 效果对所有卡一致的才进这里——"冒号后效果因卡而异"的（燃料/虚无/收割/生长）

@@ -212,7 +212,7 @@ ModelRegistry.RegisterAllInAssembly(typeof(CardModel).Assembly);   // Kernel 侧
 {
     Check(ModelRegistry.Get<TestBasicAttack>().Id.ToString() == "CARD.TEST_BASIC_ATTACK",
         "ID 从类名机械派生", ModelRegistry.Get<TestBasicAttack>().Id.ToString());
-    Check(ModelRegistry.Count == 20, $"注册了 {ModelRegistry.Count} 个内容（应为 20）");
+    Check(ModelRegistry.Count == 24, $"注册了 {ModelRegistry.Count} 个内容（应为 24）");
 }
 
 // ── canonical 只读 ──
@@ -313,7 +313,7 @@ ModelRegistry.RegisterAllInAssembly(typeof(CardModel).Assembly);   // Kernel 侧
 // ── 掉落池归属 ──
 {
     Check(ModelRegistry.Get<TestBasicAttack>().IsInDropPool, "火系卡进掉落池");
-    Check(ModelRegistry.AllOf<CardModel>().Count() == 12, "AllOf<CardModel> 数量正确（5 旧 + 7 打出测试卡）");
+    Check(ModelRegistry.AllOf<CardModel>().Count() == 14, "AllOf<CardModel> 数量正确（5 旧 + 7 打出测试卡+ 2 回合测试卡）");
 }
 Console.WriteLine();
 Console.WriteLine("[4] Creature 身体层");
@@ -965,6 +965,159 @@ Console.WriteLine("[7] 打出流程");
         return string.Join("\n", log);
     }
     Check(await RunOnce() == await RunOnce(), "抽-洗-打全流程日志逐字节可复现");
+}
+
+Console.WriteLine();
+Console.WriteLine("[8] 回合循环与里程碑");
+
+// ── 开场与首回合 ──
+{
+    var s = new CombatState(new RngSet("turn-basic"));
+    var hero = new Player("测试者", 70);
+    s.AddPlayer(hero);
+    var pcs = hero.PlayerCombatState!;
+    for (int i = 0; i < 8; i++) hero.Deck.AddInternal(ModelRegistry.New<TestStrikePlay>());
+    hero.Deck.AddInternal(ModelRegistry.New<TestInnateRetainCard>());
+
+    var brute = CombatCmd.SpawnEnemy(s, ModelRegistry.New<TestBruteMonster>());
+    Check(brute.CurrentHp >= 26 && brute.CurrentHp <= 30, "血量在 [26,30] 掷定（MonsterHp 流）", $"hp {brute.CurrentHp}");
+
+    await CombatCmd.StartCombat(s, hero);
+    Check(pcs.Hand.Count == 5 && pcs.Energy == 3, "开场：抽 5、能量 3", $"手{pcs.Hand.Count} 能{pcs.Energy}");
+    Check(pcs.Hand.Cards.Any(c => c is TestInnateRetainCard), "本能卡首回合必上手（置顶）");
+    Check(s.Events.Entries.OfType<MonsterIntentRolled>().Count() == 1 && brute.Monster!.NextMove != null,
+        "意图在玩家回合开始时已声明");
+    Check(hero.Deck.Cards.Count == 9, "牌库本体未动——进战斗的是复制品");
+    Check(!s.Events.Entries.OfType<BlockCleared>().Any(), "首回合玩家侧不清盾（豁免）");
+}
+
+// ── 回合末：临时 / 保留 / Flush 三线 ──
+{
+    var s = new CombatState(new RngSet("turn-end"));
+    var hero = new Player("测试者", 70);
+    s.AddPlayer(hero);
+    var pcs = hero.PlayerCombatState!;
+    CombatCmd.SpawnEnemy(s, ModelRegistry.New<TestBruteMonster>());
+
+    var temp = s.CreateCard<TestTemporaryCard>(hero);   pcs.Hand.AddInternal(temp);
+    var keep = s.CreateCard<TestInnateRetainCard>(hero); pcs.Hand.AddInternal(keep);
+    var epit = s.CreateCard<TestEpitaphDraw>(hero);      pcs.Hand.AddInternal(epit);
+    var norm = s.CreateCard<TestStrikePlay>(hero);       pcs.Hand.AddInternal(norm);
+    int playsBefore = s.Events.Entries.OfType<CardPlayStarted>().Count();
+
+    await CombatCmd.EndPlayerTurn(s, hero);
+    Check(temp.Pile == pcs.ExhaustPile, "临时 → 回合末被消耗");
+    Check(keep.Pile == pcs.Hand, "保留 → 留在手上");
+    Check(norm.Pile == pcs.DiscardPile && epit.Pile == pcs.DiscardPile, "其余被 Flush 进弃牌堆");
+    Check(!s.Events.Entries.OfType<CardDiscarded>().Any(), "Flush 不算弃牌：零 CardDiscarded（双动词纪律）");
+    Check(s.Events.Entries.OfType<CardPlayStarted>().Count() == playsBefore, "遗言未被 Flush 触发");
+    Check(s.Events.Entries.OfType<CardsFlushed>().Single().Count == 2, "CardsFlushed 记 2 张");
+}
+
+// ── 清盾时点 ──
+{
+    var s = new CombatState(new RngSet("block-clear"));
+    var hero = new Player("测试者", 70);
+    s.AddPlayer(hero);
+    CombatCmd.SpawnEnemy(s, ModelRegistry.New<TestBruteMonster>());
+    await CombatCmd.StartCombat(s, hero);
+    await CombatCmd.EndPlayerTurn(s, hero);
+    await CombatCmd.EnemyTurn(s);
+
+    hero.Creature.GainBlockInternal(7);                       // 敌方行动后补的盾
+    await CombatCmd.StartPlayerTurn(s, hero);                 // 第 2 回合开始
+    Check(hero.Creature.Block == 0, "第 2 回合起玩家清盾");
+    Check(s.Events.Entries.OfType<BlockCleared>().Any(e => e.Target == hero.Creature && e.Amount == 7),
+        "BlockCleared 事件带清掉的量");
+}
+
+// ── 灼伤③④ / 弱化 tick ──
+{
+    var s = new CombatState(new RngSet("tick"));
+    var hero = new Player("测试者", 70);
+    s.AddPlayer(hero);
+    var brute = CombatCmd.SpawnEnemy(s, ModelRegistry.New<TestBruteMonster>());
+    await CombatCmd.StartCombat(s, hero);
+
+    var sear = await BuffCmd.Apply<SearBuff>(s, brute, 5, null);
+    await BuffCmd.RaiseSearLevel(s, brute, 1, null);          // Ⅱ级 5 层
+    await BuffCmd.Apply<WeakenBuff>(s, hero.Creature, 2, null);
+
+    async Task Cycle() { await CombatCmd.EndPlayerTurn(s, hero); await CombatCmd.EnemyTurn(s); await CombatCmd.StartPlayerTurn(s, hero); }
+
+    await Cycle();
+    Check(sear!.Amount == 3, "灼伤Ⅱ tick：5-2=3（规则③）", $"实际 {sear.Amount}");
+    Check(hero.Creature.GetBuffAmount<WeakenBuff>() == 1, "弱化 -1");
+
+    await Cycle();
+    Check(sear.Amount == 1, "再 tick：3-2=1");
+
+    await Cycle();
+    Check(sear.Removed && !brute.HasBuff<SearBuff>(), "1-2→0：整条消失，等级蒸发（规则④）");
+    Check(!hero.Creature.HasBuff<WeakenBuff>(), "弱化归零移除");
+}
+
+// ── ModifyHandDraw（长蛇戒指位）──
+{
+    var s = new CombatState(new RngSet("hand-draw"));
+    var hero = new Player("测试者", 70);
+    s.AddPlayer(hero);
+    CombatCmd.SpawnEnemy(s, ModelRegistry.New<TestBruteMonster>());
+    for (int i = 0; i < 12; i++) hero.Deck.AddInternal(ModelRegistry.New<TestStrikePlay>());
+    await CombatCmd.StartCombat(s, hero);
+
+    var drawBuff = ModelRegistry.New<TestHandDrawBuff>();
+    drawBuff.ApplyInternal(hero.Creature, 1);
+    await CombatCmd.EndPlayerTurn(s, hero);
+    await CombatCmd.EnemyTurn(s);
+    await CombatCmd.StartPlayerTurn(s, hero);
+    Check(hero.PlayerCombatState!.Hand.Count == 6, "基数5 经 hook +1 → 抽6", $"实际 {hero.PlayerCombatState!.Hand.Count}");
+}
+
+// ── 【里程碑】无头整场战斗 ──
+{
+    async Task<(string log, bool victory, int rounds)> RunFull(string seed)
+    {
+        var s = new CombatState(new RngSet(seed));
+        var hero = new Player("测试者", 70);
+        s.AddPlayer(hero);
+        for (int i = 0; i < 6; i++) hero.Deck.AddInternal(ModelRegistry.New<TestStrikePlay>());
+        for (int i = 0; i < 3; i++) hero.Deck.AddInternal(ModelRegistry.New<TestDefendPlay>());
+        hero.Deck.AddInternal(ModelRegistry.New<TestDrawTwo>());
+        CombatCmd.SpawnEnemy(s, ModelRegistry.New<TestBruteMonster>());
+        CombatCmd.SpawnEnemy(s, ModelRegistry.New<TestBruteMonster>());
+
+        var log = new List<string>();
+        s.Events.OnEvent += ev => log.Add(ev.ToLogLine());
+        await CombatCmd.StartCombat(s, hero);
+
+        while (!s.IsOver && s.RoundNumber <= 30)
+        {
+            for (int plays = 0; plays < 13 && !s.IsOver; plays++)      // 耳环同款策略 + 官方防呆上限
+            {
+                var pcs = hero.PlayerCombatState!;
+                CardModel? card = pcs.Hand.Cards.FirstOrDefault(c => c.CanPlay());
+                if (card == null) break;
+                Creature? target = card.TargetType == TargetType.SingleEnemy
+                    ? s.Enemies.FirstOrDefault(e => e.IsAlive) : null;
+                if (card.TargetType == TargetType.SingleEnemy && target == null) break;
+                await CardCmd.Play(s, card, target);
+                CombatCmd.CheckEnd(s);
+            }
+            if (s.IsOver) break;
+            await CombatCmd.EndPlayerTurn(s, hero);
+            await CombatCmd.EnemyTurn(s);
+            if (!s.IsOver) await CombatCmd.StartPlayerTurn(s, hero);
+        }
+        return (string.Join("\n", log), s.Victory, s.RoundNumber);
+    }
+
+    var (log1, win1, rounds1) = await RunFull("MILESTONE");
+    Check(win1 && rounds1 <= 30, $"整场自动打完并获胜（第 {rounds1} 回合）");
+    var (log2, win2, _) = await RunFull("MILESTONE");
+    Check(win2 && log1 == log2, "【里程碑】同种子完整两跑，事件日志逐字节相同");
+    var (log3, _, _) = await RunFull("MILESTONE-B");
+    Check(log1 != log3, "换种子日志不同——随机源真在参与");
 }
 
 Console.WriteLine();

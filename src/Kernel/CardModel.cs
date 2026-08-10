@@ -30,6 +30,9 @@ public abstract partial class CardModel : GameModel
     public CardRarity Rarity { get; }
     public CardElement Element { get; }
     public TargetType TargetType { get; }
+    /// <summary>系别判定的唯一正门。"每有一张火系卡"类效果用它——
+    /// 双系卡两边都算（水火卡既是火系也是水系）。</summary>
+    public bool HasElement(CardElement element) => (Element & element) != 0;
 
     protected CardModel(int cost, CardType type, CardRarity rarity, CardElement element, TargetType targetType)
     {
@@ -37,6 +40,11 @@ public abstract partial class CardModel : GameModel
         _baseCost = cost;
         Type = type;
         Rarity = rarity;
+        
+        if (element == CardElement.None)
+            throw new ArgumentException("卡必须至少有一个系", nameof(element));
+        if (element.HasFlag(CardElement.Basic) && element != CardElement.Basic)
+            throw new ArgumentException("Basic（通用基石）不与其他系组合", nameof(element));
         Element = element;
         TargetType = targetType;
     }
@@ -274,4 +282,5 @@ public abstract partial class CardModel : GameModel
         // 目前还没有 event。战斗层加了 Drawn / Discarded / Exhausted 之类之后，
         // 每一个都必须在这里置 null —— MemberwiseClone 会把委托链一起复制。
     }
+    
 }

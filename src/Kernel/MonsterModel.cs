@@ -4,7 +4,7 @@ namespace Kernel;
 /// 怪物（含同伴）的定义基类。本批只有骨架——意图与招式状态机是 Step E。
 /// 同伴 = 一只 Side=Player、Creature.PetOwner 非空的怪物（同 STS2 的 Osty）。
 /// </summary>
-public abstract class MonsterModel : GameModel
+public abstract partial class MonsterModel : GameModel
 {
     /// <summary>进战斗后由 Creature 的构造反向填充。canonical 实例上恒为 null。</summary>
     public Creature? Creature { get; internal set; }
@@ -15,5 +15,9 @@ public abstract class MonsterModel : GameModel
 
     public virtual string Describe() => Id.Entry;
 
-    protected override void AfterCloned() => Creature = null;
+    protected override void AfterCloned()
+    {
+        Creature = null;
+        NextMove = null;
+    }
 }

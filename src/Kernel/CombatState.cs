@@ -29,6 +29,9 @@ public sealed class CombatState
 
     public int RoundNumber { get; internal set; } = 1;
     public CombatSide CurrentSide { get; internal set; } = CombatSide.Player;
+    /// <summary>终局标志。CheckEnd 置位；置位后回合动词全部短路。</summary>
+    public bool IsOver { get; internal set; }
+    public bool Victory { get; internal set; }
 
     public IReadOnlyList<Creature> Allies => _allies;
     public IReadOnlyList<Creature> Enemies => _enemies;

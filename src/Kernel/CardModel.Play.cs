@@ -26,4 +26,7 @@ public abstract partial class CardModel
         Type == CardType.Aura ? PileType.Removed :
         HasKeyword(CardKeyword.Exhaust) ? PileType.Exhaust :
         PileType.Discard;
+    
+    /// <summary>回合末是否留在手上。目前 = 保留关键词（"本回合保留"类 hook 到内容出现时加，STS2 有）。</summary>
+    public bool ShouldRetainThisTurn => HasKeyword(CardKeyword.Retain);
 }
