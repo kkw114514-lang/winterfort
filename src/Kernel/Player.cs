@@ -14,7 +14,13 @@ public sealed class Player
     public Creature Creature { get; }
 
     public int MaxEnergy { get; internal set; } = 3;
+    
+    /// <summary>整局的牌库（局外堆）。开战时它是抽牌堆的复制来源（Step E）。</summary>
+    public CardPile Deck { get; } = new CardPile(PileType.Deck);
 
+    /// <summary>本场战斗的战斗态。由 CombatState.AddPlayer 创建；战斗结束整个
+    /// 丢掉置 null——"忘了重置"型 bug 的结构性消灭点。</summary>
+    public PlayerCombatState? PlayerCombatState { get; internal set; }
     public Player(string name, int maxHp)
     {
         Name = name;

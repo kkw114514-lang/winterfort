@@ -194,26 +194,49 @@ public abstract class CardModel : GameModel
     /// 灼热打击式：UpgradeBy(CurrentUpgradeLevel + 3) → +4, +5, +6, +7…
     /// </summary>
     protected virtual void OnUpgrade() { }
+    // ════════ 战斗归属（批次 2 加入）════════
+
+    /// <summary>这张牌属于谁。由 CombatState.CreateCard 设置；canonical 上恒为 null。</summary>
+    public Player? Owner { get; private set; }
+
+    /// <summary>这张牌现在躺在哪个堆（由 CardPile 的 Add/RemoveInternal 维护）。</summary>
+    public CardPile? Pile { get; private set; }
+
+    internal void SetOwner(Player owner)
+    {
+        AssertMutable();
+        Owner = owner;
+    }
+
+    internal void SetPile(CardPile? pile)
+    {
+        AssertMutable();
+        Pile = pile;
+    }
 
     // ════════ 能否打出 ════════
 
     /// <summary>
-    /// 【临时签名】战斗层建好后，availableEnergy 应该从 Owner / CombatContext 拿，
-    /// 而不是由调用方传。
-    ///
-    /// 现在只有关键词、能量、卡自身逻辑三个来源。BlockedByHook 和 NoValidTarget
-    /// 等战斗层接上后在这里填，preventer 也在那时才会真的有值。
+    /// 【STS2 无参形态】卡从自己的 Owner 拿战斗状态，资源判定整体委托给
+    /// PlayerCombatState.HasEnoughResourcesFor——加第二种资源时本签名不变。
+    /// BlockedByHook / NoValidTarget 等 Hook 总线（Step B）接上后在这追加，
+    /// preventer 到那时才有值。
     /// </summary>
-    public bool CanPlay(int availableEnergy, out UnplayableReason reason, out GameModel? preventer)
+    public bool CanPlay(out UnplayableReason reason, out GameModel? preventer)
     {
         reason = UnplayableReason.None;
         preventer = null;
 
+        if (Owner?.PlayerCombatState is not { } resources)
+            throw new InvalidOperationException(
+                $"{Id} 不在战斗中（Owner/PlayerCombatState 为空）。CanPlay 是战斗内的问题，" +
+                "牌库预览等场景不该调它。");
+
         if (HasKeyword(CardKeyword.Unplayable))
             reason |= UnplayableReason.HasUnplayableKeyword;
 
-        if (Cost > availableEnergy)
-            reason |= UnplayableReason.EnergyTooHigh;
+        if (!resources.HasEnoughResourcesFor(this, out UnplayableReason resourceReason))
+            reason |= resourceReason;
 
         if (!CanPlayByCardLogic())
             reason |= UnplayableReason.BlockedByCardLogic;
@@ -221,8 +244,8 @@ public abstract class CardModel : GameModel
         return reason == UnplayableReason.None;
     }
 
-    /// <summary>常用路径的便捷写法。要知道"为什么不能打"就用三参数版本。</summary>
-    public bool CanPlay(int availableEnergy) => CanPlay(availableEnergy, out _, out _);
+    /// <summary>常用路径便捷版。要知道"为什么打不出"用带 out 的版本。</summary>
+    public bool CanPlay() => CanPlay(out _, out _);
 
     /// <summary>卡自身的额外条件（"只有手牌为空时才能打出"这类）。</summary>
     protected virtual bool CanPlayByCardLogic() => true;
@@ -244,6 +267,10 @@ public abstract class CardModel : GameModel
 
     protected override void AfterCloned()
     {
+        // 归属是运行时状态，副本必须从零开始——MemberwiseClone 会把引用一起拷走。
+        Owner = null;
+        Pile = null;
+
         // 目前还没有 event。战斗层加了 Drawn / Discarded / Exhausted 之类之后，
         // 每一个都必须在这里置 null —— MemberwiseClone 会把委托链一起复制。
     }

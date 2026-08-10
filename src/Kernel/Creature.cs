@@ -70,7 +70,12 @@ public sealed class Creature
     /// 引用哈希每次运行都不同，都不许用。
     /// </summary>
     public uint? CombatId { get; internal set; }
+    /// <summary>所在的战斗。入场时由 CombatState 填，战斗结束置回 null（Step E）。</summary>
+    public CombatState? CombatState { get; internal set; }
 
+    /// <summary>我的同伴们（转发到 PlayerCombatState，同 STS2）。不在战斗中 = 空表。</summary>
+    public IReadOnlyList<Creature> Pets =>
+        Player?.PlayerCombatState?.Pets ?? Array.Empty<Creature>();
     /// <summary>同伴的主人。同 STS2：一经设置不许改（防止"换主人"这种未定义状态）。</summary>
     public Player? PetOwner
     {

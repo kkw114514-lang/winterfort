@@ -309,21 +309,6 @@ ModelRegistry.RegisterAllInAssembly(typeof(TestBasicAttack).Assembly);
     Check(preview.Vars.Damage.WasJustUpgraded, "预览的数值带『刚变过』标记，供 UI 高亮");
 }
 
-// ── CanPlay 的多来源收口 ──
-{
-    var e = ModelRegistry.New<TestBasicAttack>();
-    Check(e.CanPlay(3), "能量够时可以打出");
-
-    bool ok = e.CanPlay(0, out UnplayableReason why, out GameModel? who);
-    Check(!ok && why == UnplayableReason.EnergyTooHigh, "能量不够时给出确切原因", why.ToString());
-    Check(who == null, "hook 系统还没建，preventer 恒为 null");
-
-    var curse = ModelRegistry.New<TestUnplayableCurse>();
-    curse.CanPlay(99, out UnplayableReason curseWhy, out _);
-    Check(curseWhy == UnplayableReason.HasUnplayableKeyword,
-        "能量充足也打不出：原因是关键词", curseWhy.ToString());
-}
-
 // ── 掉落池归属 ──
 {
     Check(ModelRegistry.Get<TestBasicAttack>().IsInDropPool, "火系卡进掉落池");
@@ -464,6 +449,156 @@ Fx.OnWarn = msg => Console.Error.WriteLine(msg);
     Fx.Backend = null;
     Fx.OnWarn = msg => Console.Error.WriteLine(msg);
 }
+
+Console.WriteLine();
+Console.WriteLine("[5] 牌堆与战斗全景");
+
+// ── 战斗组装：名册、发号、同伴 ──
+{
+    var state = new CombatState();
+    var hero = new Player("测试者", 70);
+    state.AddPlayer(hero);
+
+    Check(hero.PlayerCombatState != null, "AddPlayer 创建了 PlayerCombatState");
+    Check(hero.Creature.CombatState == state, "玩家身体挂进了战斗");
+    Check(hero.Creature.CombatId == 1u, "第一个入场者 CombatId=1", $"实际 {hero.Creature.CombatId}");
+
+    var e1 = state.CreateCreature(ModelRegistry.New<TestDummyMonster>(), CombatSide.Enemy, 40);
+    var e2 = state.CreateCreature(ModelRegistry.New<TestDummyMonster>(), CombatSide.Enemy, 42);
+    Check(e1.CombatId == 2u && e2.CombatId == 3u, "CombatId 按入场顺序递增");
+    Check(state.Allies.Count == 1 && state.Enemies.Count == 2, "两侧名册正确");
+    Check(state.GetOpponentsOf(hero.Creature).Count == 2, "对手查询");
+
+    var pet = state.AddPet(ModelRegistry.New<TestDummyMonster>(), hero, 12);
+    Check(pet.PetOwner == hero && pet.Side == CombatSide.Player, "同伴入场：主人+阵营");
+    Check(hero.Creature.Pets.Count == 1 && hero.Creature.Pets[0] == pet, "Creature.Pets 转发可见");
+
+    bool threw = false;
+    try { state.AddPlayer(hero); } catch (InvalidOperationException) { threw = true; }
+    Check(threw, "同一玩家不能二次入场");
+}
+
+// ── 铁律：每张牌任意时刻恰好在一个堆 ──
+{
+    var state = new CombatState();
+    var hero = new Player("测试者", 70);
+    state.AddPlayer(hero);
+    var pcs = hero.PlayerCombatState!;
+
+    var card = state.CreateCard<TestBasicAttack>(hero);
+    Check(card.Owner == hero && card.Pile == null, "CreateCard 设 Owner，还没进堆");
+
+    pcs.Hand.AddInternal(card);
+    Check(card.Pile == pcs.Hand && pcs.Hand.Count == 1, "进手牌，Pile 指回手牌");
+
+    bool threw = false;
+    try { pcs.DrawPile.AddInternal(card); } catch (InvalidOperationException) { threw = true; }
+    Check(threw, "已在手牌的卡不能再进抽牌堆（铁律执法点在 AddInternal）");
+
+    pcs.Hand.RemoveInternal(card);
+    Check(card.Pile == null && pcs.Hand.IsEmpty, "移出后 Pile 归 null");
+
+    pcs.RemovedPile.AddInternal(card);
+    Check(pcs.AllCards.Count() == 1, "AllCards（所有权名单）包含移出区的牌——战斗结束凭它归还");
+    Check(!CardPile.GetCards(hero, PileType.Draw, PileType.Discard, PileType.Hand).Any(),
+        "选牌查询点名要堆，不点 Removed 就选不到——『不能被选中』的实现");
+
+    threw = false;
+    try { pcs.Hand.AddInternal(ModelRegistry.Get<TestBasicAttack>()); }
+    catch (InvalidOperationException) { threw = true; }
+    Check(threw, "canonical 定义不能进牌堆");
+}
+
+// ── 洗牌走注入的 Rng ──
+{
+    var state = new CombatState();
+    var hero = new Player("测试者", 70);
+    state.AddPlayer(hero);
+    for (int i = 0; i < 8; i++)
+        hero.PlayerCombatState!.DrawPile.AddInternal(state.CreateCard<TestBasicAttack>(hero));
+
+    var rng = new Rng(2026, "shuffle");
+    int before = rng.Counter;
+    hero.PlayerCombatState!.DrawPile.ShuffleInternal(rng);
+    Check(rng.Counter - before == 7, "洗 8 张消耗恰好 7 次（铁律③延伸到牌堆）",
+        $"实际 {rng.Counter - before}");
+}
+
+// ── CanPlay：STS2 无参形态 ──
+{
+    var state = new CombatState();
+    var hero = new Player("测试者", 70);
+    state.AddPlayer(hero);
+    var pcs = hero.PlayerCombatState!;
+
+    var strike = state.CreateCard<TestBasicAttack>(hero);
+    pcs.Hand.AddInternal(strike);
+
+    pcs.ResetEnergy();
+    Check(pcs.Energy == 3, "回合初能量 = MaxEnergy = 3", $"实际 {pcs.Energy}");
+    Check(strike.CanPlay(), "能量够：可以打出");
+
+    pcs.LoseEnergy(3);
+    bool ok = strike.CanPlay(out UnplayableReason why, out GameModel? who);
+    Check(!ok && why == UnplayableReason.EnergyTooHigh, "能量不够：给出确切原因", why.ToString());
+    Check(who == null, "hook 未建，preventer 恒 null");
+
+    var curse = state.CreateCard<TestUnplayableCurse>(hero);
+    pcs.Hand.AddInternal(curse);
+    pcs.ResetEnergy();
+    curse.CanPlay(out UnplayableReason curseWhy, out _);
+    Check(curseWhy == UnplayableReason.HasUnplayableKeyword, "0 费也打不出：关键词原因", curseWhy.ToString());
+
+    bool threw = false;
+    try { ModelRegistry.New<TestBasicAttack>().CanPlay(); }
+    catch (InvalidOperationException) { threw = true; }
+    Check(threw, "不在战斗中的卡问 CanPlay 直接抛");
+}
+
+// ── 事件流 ──
+{
+    var state = new CombatState();
+    var log = new List<string>();
+    state.Events.OnEvent += e => log.Add(e.ToLogLine());
+
+    state.Events.Emit(new TestEvent { Round = 1, Side = CombatSide.Player, Note = "开幕" });
+    state.Events.Emit(new TestEvent { Round = 2, Side = CombatSide.Enemy, Note = "反击" });
+
+    Check(state.Events.Entries.Count == 2, "事件入账 2 条");
+    Check(log.Count == 2 && log[0] == "Rd 1 (Player): 测试事件：开幕",
+        "订阅者逐条收到 + 日志行格式", log.Count > 0 ? log[0] : "(空)");
+    Check(state.Events.Entries[0].HappenedThisTurn(state), "Rd1/Player 命中当前回合");
+    Check(!state.Events.Entries[1].HappenedThisTurn(state), "Rd2/Enemy 不命中");
+}
+
+// ── hook 名单：顺序写死 + Removed 可见（你的设计决定）──
+{
+    var state = new CombatState();
+    var hero = new Player("测试者", 70);
+    state.AddPlayer(hero);
+    var pcs = hero.PlayerCombatState!;
+
+    var might = ModelRegistry.New<TestMightBuff>();
+    might.ApplyInternal(hero.Creature, 2);
+
+    var inHand = state.CreateCard<TestBasicAttack>(hero);
+    pcs.Hand.AddInternal(inHand);
+    var inRemoved = state.CreateCard<TestShieldSkill>(hero);
+    pcs.RemovedPile.AddInternal(inRemoved);
+
+    var enemy = state.CreateCreature(ModelRegistry.New<TestDummyMonster>(), CombatSide.Enemy, 40);
+    var venom = ModelRegistry.New<TestVenomBuff>();
+    venom.ApplyInternal(enemy, 1);
+
+    var listeners = state.IterateHookListeners().ToList();
+    Check(listeners.Contains(inRemoved), "移出区的牌在 hook 名单里（被动仍生效，设计故意）");
+
+    var expected = new GameModel[] { might, inHand, inRemoved, venom, enemy.Monster! };
+    Check(listeners.SequenceEqual(expected),
+        "名单顺序写死：友方buff → 友方牌(堆序) → 敌方buff → 敌方怪",
+        string.Join(" | ", listeners.Select(l => l.Id.Entry)));
+}
+
 Console.WriteLine();
 Console.WriteLine(failures == 0 ? "全部通过 ✔" : $"{failures} 条断言失败 ✘");
 return failures == 0 ? 0 : 1;
@@ -475,4 +610,11 @@ sealed class ExplodingBackend : Kernel.IFxBackend
     public void Vfx(string id, Kernel.Creature on) => throw new InvalidOperationException("特效系统炸了");
     public void Anim(Kernel.Creature who, string animId) => throw new InvalidOperationException("动画系统炸了");
     public System.Threading.Tasks.Task Wait(float seconds) => throw new InvalidOperationException("计时器炸了");
+}
+
+/// <summary>事件流测试用的最小事件（真实事件类型随 Cmd 层到来）。</summary>
+sealed class TestEvent : Kernel.CombatEvent
+{
+    public string Note { get; init; } = "";
+    public override string Description => $"测试事件：{Note}";
 }
