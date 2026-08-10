@@ -10,7 +10,7 @@ namespace Kernel;
 /// 折叠方式因族而异：Modify=数值折叠，Should=一票否决，After=顺序 await。
 /// 名单与顺序来自 CombatState.IterateHookListeners（[5] 已断言钉死）。
 /// </summary>
-public static class Hook
+public static partial class Hook
 {
     /// <summary>快照原因：After 钩子里可能增删 buff，不能边遍历边改活列表。</summary>
     private static List<GameModel> Snapshot(CombatState state) => state.IterateHookListeners().ToList();

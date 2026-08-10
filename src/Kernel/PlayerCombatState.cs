@@ -13,6 +13,10 @@ public sealed class PlayerCombatState
     private readonly List<Creature> _pets = new();
     private CardPile[]? _allPiles;
     private int _energy;
+    
+    /// <summary>虚无的边沿触发标志：上个检查点末尾手牌非空 = 已武装。
+    /// 防止空手状态下的连锁自动打出反复触发（水密规则第②条）。</summary>
+    internal bool NihilityArmed = true;
 
     public CardPile Hand        { get; } = new(PileType.Hand);
     public CardPile DrawPile    { get; } = new(PileType.Draw);

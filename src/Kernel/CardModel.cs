@@ -21,7 +21,7 @@ public abstract class AfflictionModel : GameModel
 ///
 /// 【本轮只有数据层】OnPlay 的签名取决于 CombatContext，等战斗层建好再加。
 /// </summary>
-public abstract class CardModel : GameModel
+public abstract partial class CardModel : GameModel
 {
     // ════════ 定义性属性：构造时定死，永不改变 ════════
 

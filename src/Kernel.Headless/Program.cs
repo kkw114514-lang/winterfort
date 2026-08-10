@@ -212,7 +212,7 @@ ModelRegistry.RegisterAllInAssembly(typeof(CardModel).Assembly);   // Kernel 侧
 {
     Check(ModelRegistry.Get<TestBasicAttack>().Id.ToString() == "CARD.TEST_BASIC_ATTACK",
         "ID 从类名机械派生", ModelRegistry.Get<TestBasicAttack>().Id.ToString());
-    Check(ModelRegistry.Count == 13, $"注册了 {ModelRegistry.Count} 个内容（应为 13）");
+    Check(ModelRegistry.Count == 20, $"注册了 {ModelRegistry.Count} 个内容（应为 20）");
 }
 
 // ── canonical 只读 ──
@@ -313,7 +313,7 @@ ModelRegistry.RegisterAllInAssembly(typeof(CardModel).Assembly);   // Kernel 侧
 // ── 掉落池归属 ──
 {
     Check(ModelRegistry.Get<TestBasicAttack>().IsInDropPool, "火系卡进掉落池");
-    Check(ModelRegistry.AllOf<CardModel>().Count() == 5, "AllOf<CardModel> 数量正确");
+    Check(ModelRegistry.AllOf<CardModel>().Count() == 12, "AllOf<CardModel> 数量正确（5 旧 + 7 打出测试卡）");
 }
 Console.WriteLine();
 Console.WriteLine("[4] Creature 身体层");
@@ -773,6 +773,198 @@ Console.WriteLine("[6] Hook 总线与伤害管线");
         return string.Join("\n", log);
     }
     Check(await RunOnce() == await RunOnce(), "事件日志逐字节可复现（里程碑雏形）");
+}
+
+Console.WriteLine();
+Console.WriteLine("[7] 打出流程");
+
+// 带随机源的战斗搭建（[7] 专用）
+(CombatState state, Player hero, Creature enemy) NewFightR(string seed)
+{
+    var s = new CombatState(new RngSet(seed));
+    var h = new Player("测试者", 70);
+    s.AddPlayer(h);
+    var e = s.CreateCreature(ModelRegistry.New<TestDummyMonster>(), CombatSide.Enemy, 40);
+    h.PlayerCombatState!.ResetEnergy();
+    return (s, h, e);
+}
+
+// ── 基本打出：管线全通 ──
+{
+    var (s, h, e) = NewFightR("play-basic");
+    var pcs = h.PlayerCombatState!;
+    var strike = s.CreateCard<TestStrikePlay>(h);
+    pcs.Hand.AddInternal(strike);
+    await BuffCmd.Apply<StrengthBuff>(s, h.Creature, 2, null);
+
+    bool ok = await CardCmd.Play(s, strike, e);
+    Check(ok && e.CurrentHp == 32, "打出：6+2力量=8 伤", $"hp {e.CurrentHp}");
+    Check(pcs.Energy == 2, "扣了 1 费", $"实际 {pcs.Energy}");
+    Check(strike.Pile == pcs.DiscardPile, "攻击卡落入弃牌堆");
+    Check(s.Events.Entries.OfType<CardPlayStarted>().Count() == 1
+          && s.Events.Entries.OfType<CardPlayFinished>().Count() == 1, "开打/打完两事件各一");
+}
+
+// ── 打不出去的三种拒绝 ──
+{
+    var (s, h, e) = NewFightR("play-reject");
+    var pcs = h.PlayerCombatState!;
+    var strike = s.CreateCard<TestStrikePlay>(h);
+    pcs.Hand.AddInternal(strike);
+
+    pcs.LoseEnergy(3);
+    Check(!await CardCmd.Play(s, strike, e), "能量不足 → false，卡留在手牌");
+    Check(strike.Pile == pcs.Hand, "没动");
+
+    pcs.ResetEnergy();
+    e.LoseHpInternal(999, ValueProp.None);
+    Check(!await CardCmd.Play(s, strike, e), "目标已死 → false");
+
+    var drawPileCard = s.CreateCard<TestDefendPlay>(h);
+    pcs.DrawPile.AddInternal(drawPileCard);
+    Check(!await CardCmd.Play(s, drawPileCard, null), "不在手牌 → false（主动打出只能从手牌）");
+}
+
+// ── 消耗关键词 + 燃料 ──
+{
+    var (s, h, _) = NewFightR("fuel");
+    var pcs = h.PlayerCombatState!;
+    var fuel = s.CreateCard<TestFuelBlock>(h);
+    pcs.Hand.AddInternal(fuel);
+    var filler = s.CreateCard<TestDefendPlay>(h);
+    pcs.Hand.AddInternal(filler);                      // 占位，避免触发虚无
+
+    await CardCmd.Play(s, fuel, null);
+    Check(fuel.Pile == pcs.ExhaustPile, "自带消耗：打完进消耗堆");
+    Check(h.Creature.Block == 3, "燃料触发（途径①：打出自耗）", $"盾 {h.Creature.Block}");
+    Check(s.Events.Entries.OfType<CardExhausted>().Count() == 1, "CardExhausted 事件");
+
+    var fuel2 = s.CreateCard<TestFuelBlock>(h);
+    pcs.Hand.AddInternal(fuel2);
+    await CardPileCmd.Exhaust(s, fuel2);
+    Check(h.Creature.Block == 6, "燃料触发（途径②：被效果消耗）", $"盾 {h.Creature.Block}");
+}
+
+// ── Aura → Removed（偏离 #6 的落地）──
+{
+    var (s, h, e) = NewFightR("aura");
+    var pcs = h.PlayerCombatState!;
+    var aura = s.CreateCard<TestAuraMight>(h);
+    pcs.Hand.AddInternal(aura);
+    var strike = s.CreateCard<TestStrikePlay>(h);
+    pcs.Hand.AddInternal(strike);
+
+    await CardCmd.Play(s, aura, null);
+    Check(aura.Pile == pcs.RemovedPile, "Aura 打完进 Removed 堆");
+    Check(!s.Events.Entries.OfType<CardExhausted>().Any(), "不是消耗——燃料/消耗事件都没有");
+
+    await CardCmd.Play(s, strike, e);
+    Check(e.CurrentHp == 33, "躺在 Removed 的永续卡持续生效：6+1=7 伤", $"hp {e.CurrentHp}");
+}
+
+// ── 抽牌：上限 / 洗回 ──
+{
+    var (s, h, _) = NewFightR("draw-rules");
+    var pcs = h.PlayerCombatState!;
+    for (int i = 0; i < 2; i++) pcs.DrawPile.AddInternal(s.CreateCard<TestDefendPlay>(h));
+    for (int i = 0; i < 3; i++) pcs.DiscardPile.AddInternal(s.CreateCard<TestStrikePlay>(h));
+
+    var got = await CardPileCmd.Draw(s, h, 4);
+    Check(got.Count == 4 && pcs.Hand.Count == 4, "抽 4：抽穿抽牌堆后洗回再抽", $"手 {pcs.Hand.Count}");
+    Check(s.Events.Entries.OfType<PilesReshuffled>().Count() == 1, "洗回事件一次");
+    Check(pcs.DrawPile.Count == 1 && pcs.DiscardPile.IsEmpty, "洗回后余 1 在抽牌堆");
+
+    for (int i = 0; i < 6; i++) pcs.Hand.AddInternal(s.CreateCard<TestDefendPlay>(h));   // 手牌到 10
+    int before = pcs.DrawPile.Count;
+    Check((await CardPileCmd.Draw(s, h, 1)).Count == 0 && pcs.DrawPile.Count == before,
+        "满 10 不抽，牌留在抽牌堆");
+}
+
+// ── 生成：满手改道弃牌堆 ──
+{
+    var (s, h, _) = NewFightR("generate");
+    var pcs = h.PlayerCombatState!;
+    for (int i = 0; i < 10; i++) pcs.Hand.AddInternal(s.CreateCard<TestDefendPlay>(h));
+
+    var extra = s.CreateCard<TestStrikePlay>(h);
+    await CardPileCmd.AddGenerated(s, extra, PileType.Hand);
+    Check(extra.Pile == pcs.DiscardPile, "生成进满手 → 改道弃牌堆（STS2 实证规则）");
+    Check(s.Events.Entries.OfType<CardGenerated>().Single().To == PileType.Discard,
+        "CardGenerated 记录的是实际去向");
+}
+
+// ── 遗言：效果弃牌 → 免费打出自己 ──
+{
+    var (s, h, _) = NewFightR("epitaph");
+    var pcs = h.PlayerCombatState!;
+    var epitaph = s.CreateCard<TestEpitaphDraw>(h);
+    pcs.Hand.AddInternal(epitaph);
+    var filler = s.CreateCard<TestDefendPlay>(h);
+    pcs.Hand.AddInternal(filler);
+    pcs.DrawPile.AddInternal(s.CreateCard<TestStrikePlay>(h));
+    int energyBefore = pcs.Energy;
+
+    await CardCmd.Discard(s, epitaph);
+    Check(s.Events.Entries.OfType<CardDiscarded>().Count() == 1, "弃牌事件");
+    Check(s.Events.Entries.OfType<CardPlayStarted>().Single().IsAutoPlay, "遗言自动打出（IsAutoPlay）");
+    Check(pcs.Hand.Count == 2, "遗言效果执行了：抽回 1 张（手上 filler+新抽）", $"手 {pcs.Hand.Count}");
+    Check(pcs.Energy == energyBefore, "免费——能量分文未动");
+    Check(epitaph.Pile == pcs.DiscardPile, "打完回弃牌堆");
+}
+
+// ── 虚无：你举的原例 + 同回合二次触发 ──
+{
+    var (s, h, e) = NewFightR("nihility");
+    var pcs = h.PlayerCombatState!;
+    var nihility = s.CreateCard<TestNihilityExhauster>(h);
+    pcs.Hand.AddInternal(nihility);
+    var other = s.CreateCard<TestStrikePlay>(h);
+    pcs.Hand.AddInternal(other);                                  // 手牌恰两张——原例场景
+    pcs.DrawPile.AddInternal(s.CreateCard<TestStrikePlay>(h));
+    pcs.DrawPile.AddInternal(s.CreateCard<TestDefendPlay>(h));
+
+    await CardCmd.Play(s, nihility, null);
+    // 打出（手1）→ 效果消耗 other（手0）→ 检查点：空&已武装 → 虚无：抽1（手1）
+    Check(s.Events.Entries.OfType<NihilityTriggered>().Count() == 1, "虚无触发一次（原例）");
+    Check(pcs.Hand.Count == 1, "冒号效果抽回 1 张", $"手 {pcs.Hand.Count}");
+    Check(other.Pile == pcs.ExhaustPile && nihility.Pile == pcs.ExhaustPile, "两张都进了消耗堆");
+
+    var drawn = pcs.Hand.Cards[0];
+    bool played = drawn is TestStrikePlay
+        ? await CardCmd.Play(s, drawn, e)
+        : await CardCmd.Play(s, drawn, null);
+    // 打出手里唯一一张 → 手牌再度变空 → 边沿已重新武装 → 第二次触发（"每次都触发"）
+    Check(played && s.Events.Entries.OfType<NihilityTriggered>().Count() == 2,
+        "同回合第二次变空，再次触发");
+}
+
+// ── 随机源未接线的清晰报错 ──
+{
+    var s = new CombatState();
+    bool threw = false;
+    try { _ = s.RngSet; }
+    catch (InvalidOperationException ex) when (ex.Message.Contains("随机源")) { threw = true; }
+    Check(threw, "没接 RngSet 时报人话错误，而不是 NRE");
+}
+
+// ── 全流程确定性：同种子两跑，日志逐字节相同 ──
+{
+    async Task<string> RunOnce()
+    {
+        var (s, h, e) = NewFightR("determinism-d");
+        var log = new List<string>();
+        s.Events.OnEvent += ev => log.Add(ev.ToLogLine());
+        var pcs = h.PlayerCombatState!;
+        for (int i = 0; i < 5; i++) pcs.DiscardPile.AddInternal(s.CreateCard<TestStrikePlay>(h));
+        for (int i = 0; i < 2; i++) pcs.DrawPile.AddInternal(s.CreateCard<TestDrawTwo>(h));
+        await CardPileCmd.Draw(s, h, 4);                       // 会触发洗回 → 消耗 Shuffle 流
+        var target = s.Enemies[0];
+        foreach (var c in pcs.Hand.Cards.ToList())
+            if (pcs.Energy > 0)
+                await CardCmd.Play(s, c, c.TargetType == TargetType.SingleEnemy ? target : null);
+        return string.Join("\n", log);
+    }
+    Check(await RunOnce() == await RunOnce(), "抽-洗-打全流程日志逐字节可复现");
 }
 
 Console.WriteLine();

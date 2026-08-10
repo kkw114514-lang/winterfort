@@ -16,6 +16,16 @@ public sealed class CombatState
     private uint _nextCreatureId = 1;
 
     public CombatEvents Events { get; } = new();
+    
+    private readonly RngSet? _rngSet;
+
+    /// <summary>可选注入随机源。不注入也能开战——直到第一次洗牌/随机才会报错。</summary>
+    public CombatState(RngSet? rngSet = null) => _rngSet = rngSet;
+
+    /// <summary>本场战斗的随机源。缺失时给出能看懂的错误，而不是 NRE。</summary>
+    public RngSet RngSet => _rngSet
+                            ?? throw new InvalidOperationException(
+                                "本场战斗没接随机源。洗牌/随机目标需要它：new CombatState(new RngSet(seed))。");
 
     public int RoundNumber { get; internal set; } = 1;
     public CombatSide CurrentSide { get; internal set; } = CombatSide.Player;
