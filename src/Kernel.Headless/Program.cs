@@ -212,7 +212,7 @@ ModelRegistry.RegisterAllInAssembly(typeof(CardModel).Assembly);   // Kernel 侧
 {
     Check(ModelRegistry.Get<TestBasicAttack>().Id.ToString() == "CARD.TEST_BASIC_ATTACK",
         "ID 从类名机械派生", ModelRegistry.Get<TestBasicAttack>().Id.ToString());
-    Check(ModelRegistry.Count == 24, $"注册了 {ModelRegistry.Count} 个内容（应为 24）");
+    Check(ModelRegistry.Count == 26, $"注册了 {ModelRegistry.Count} 个内容（应为 26）");
 }
 
 // ── canonical 只读 ──
@@ -1118,6 +1118,91 @@ Console.WriteLine("[8] 回合循环与里程碑");
     Check(win2 && log1 == log2, "【里程碑】同种子完整两跑，事件日志逐字节相同");
     var (log3, _, _) = await RunFull("MILESTONE-B");
     Check(log1 != log3, "换种子日志不同——随机源真在参与");
+}
+
+Console.WriteLine();
+Console.WriteLine("[9] 同伴召唤全流程");
+
+// ── 首次召唤：创建 + 自动舍身 ──
+{
+    var s = new CombatState(new RngSet("summon-basic"));
+    var hero = new Player("测试者", 70);
+    s.AddPlayer(hero);
+    s.CreateCreature(ModelRegistry.New<TestDummyMonster>(), CombatSide.Enemy, 40);
+
+    Check(hero.IsPetMissing && hero.Pet == null, "召唤前：无同伴");
+
+    var pet = await PetCmd.Summon<TestPetMonster>(s, hero, 5, null);
+    Check(pet != null && pet.MaxHp == 5 && pet.CurrentHp == 5, "召唤5 → 5/5", $"{pet?.CurrentHp}/{pet?.MaxHp}");
+    Check(hero.IsPetAlive && hero.Pet == pet, "Player.Pet 三件套就位");
+    Check(pet!.PetOwner == hero && pet.Side == CombatSide.Player && s.Allies.Count == 2, "玩家侧入册");
+    Check(pet.HasBuff<GuardianBuff>(), "舍身自动挂载（仅首次创建）");
+    Check(!s.Events.Entries.OfType<PetSummoned>().Single().WasRevive, "PetSummoned：非复活");
+}
+
+// ── 活着再召唤：上限与当前同加 ──
+{
+    var s = new CombatState(new RngSet("summon-grow"));
+    var hero = new Player("测试者", 70);
+    s.AddPlayer(hero);
+
+    var pet = await PetCmd.Summon<TestPetMonster>(s, hero, 4, null);
+    pet!.LoseHpInternal(2, ValueProp.None);                       // 4/4 → 2/4
+    await PetCmd.Summon<TestPetMonster>(s, hero, 3, null);
+    Check(pet.MaxHp == 7 && pet.CurrentHp == 5, "带伤 2/4 召唤3 → 5/7（同加）", $"{pet.CurrentHp}/{pet.MaxHp}");
+    Check(s.Allies.Count == 2 && pet.Buffs.Count == 1, "没有第二只，也没有第二层舍身");
+}
+
+// ── 代受阵亡 → 尸体档案 → 复活（偏离#8 的完整验收）──
+{
+    var s = new CombatState(new RngSet("summon-revive"));
+    var hero = new Player("测试者", 70);
+    s.AddPlayer(hero);
+    var enemy = s.CreateCreature(ModelRegistry.New<TestDummyMonster>(), CombatSide.Enemy, 40);
+
+    var pet = await PetCmd.Summon<TestPetMonster>(s, hero, 6, null);
+    uint petId = pet!.CombatId!.Value;
+
+    await CreatureCmd.Damage(s, enemy, new[] { hero.Creature }, 10, ValueProp.Move, null);
+    Check(pet.IsDead && hero.Creature.CurrentHp == 66, "代受阵亡：实扣6+溢出4回流 70→66", $"hp {hero.Creature.CurrentHp}");
+    Check(s.Allies.Count == 1 && hero.PlayerCombatState!.Pets.Count == 1, "尸体出名册、留档案");
+    Check(hero.IsPetMissing && hero.Pet == pet, "IsPetMissing=true，Pet 仍指向尸体");
+    Check(pet.HasBuff<GuardianBuff>(), "舍身留在尸体上");
+
+    await CreatureCmd.Damage(s, enemy, new[] { hero.Creature }, 5, ValueProp.Move, null);
+    Check(hero.Creature.CurrentHp == 61, "尸体出名册=舍身停听：伤害直达主人", $"hp {hero.Creature.CurrentHp}");
+
+    var revived = await PetCmd.Summon<TestPetMonster>(s, hero, 4, null);
+    Check(ReferenceEquals(revived, pet) && pet.CombatId == petId, "复活=同一对象、同 CombatId");
+    Check(pet.IsAlive && pet.MaxHp == 4 && pet.CurrentHp == 4, "复活血量=召唤量 4/4", $"{pet.CurrentHp}/{pet.MaxHp}");
+    Check(s.Allies.Count == 2, "重入名册");
+    Check(s.Events.Entries.OfType<PetSummoned>().Count(e => e.WasRevive) == 1, "复活事件标记");
+
+    await CreatureCmd.Damage(s, enemy, new[] { hero.Creature }, 3, ValueProp.Move, null);
+    Check(pet.CurrentHp == 1 && hero.Creature.CurrentHp == 61, "复活即恢复代受：3 伤落在同伴", $"pet {pet.CurrentHp}");
+}
+
+// ── 召唤量修正钩子 ──
+{
+    var s = new CombatState(new RngSet("summon-boost"));
+    var hero = new Player("测试者", 70);
+    s.AddPlayer(hero);
+    var boost = ModelRegistry.New<TestSummonBoostBuff>();
+    boost.ApplyInternal(hero.Creature, 2);
+
+    var pet = await PetCmd.Summon<TestPetMonster>(s, hero, 3, null);
+    Check(pet!.MaxHp == 5, "ModifySummonAmount：3+2=5", $"实际 {pet.MaxHp}");
+}
+
+// ── 归零短路 ──
+{
+    var s = new CombatState(new RngSet("summon-zero"));
+    var hero = new Player("测试者", 70);
+    s.AddPlayer(hero);
+
+    var pet = await PetCmd.Summon<TestPetMonster>(s, hero, 0, null);
+    Check(pet == null && s.Allies.Count == 1 && !s.Events.Entries.OfType<PetSummoned>().Any(),
+        "召唤量≤0：无事发生（STS2 同款短路）");
 }
 
 Console.WriteLine();

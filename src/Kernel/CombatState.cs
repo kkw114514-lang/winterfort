@@ -84,6 +84,18 @@ public sealed class CombatState
             throw new InvalidOperationException($"{creature} 不在本场战斗名册里。");
     }
 
+    /// <summary>复活重入名册：同一个对象、CombatId 不变（日志连续）。
+    /// 守卫：必须曾属于本场战斗，且当前不在名册。</summary>
+    public void ReattachCreature(Creature creature)
+    {
+        if (creature.CombatState != this)
+            throw new InvalidOperationException($"{creature} 不属于本场战斗，不能重入。");
+        List<Creature> sideList = creature.Side == CombatSide.Player ? _allies : _enemies;
+        if (sideList.Contains(creature))
+            throw new InvalidOperationException($"{creature} 已在名册里。");
+        sideList.Add(creature);
+    }
+    
     // ══ 造牌 ══
 
     /// <summary>战斗内造牌的正门：取 mutable 副本 + 登记归属。（进哪个堆由调用方决定。）</summary>

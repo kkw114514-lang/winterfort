@@ -21,6 +21,20 @@ public sealed class Player
     /// <summary>本场战斗的战斗态。由 CombatState.AddPlayer 创建；战斗结束整个
     /// 丢掉置 null——"忘了重置"型 bug 的结构性消灭点。</summary>
     public PlayerCombatState? PlayerCombatState { get; internal set; }
+    
+    /// <summary>我的同伴（单同伴规则：档案里第一只，含尸体）。对应 STS2 的 Osty 三件套。</summary>
+    public Creature? Pet
+    {
+        get
+        {
+            var pets = PlayerCombatState?.Pets;
+            return pets != null && pets.Count > 0 ? pets[0] : null;
+        }
+    }
+
+    public bool IsPetAlive => Pet?.IsAlive ?? false;
+    public bool IsPetMissing => !IsPetAlive;
+    
     public Player(string name, int maxHp)
     {
         Name = name;

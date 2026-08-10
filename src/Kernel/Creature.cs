@@ -187,6 +187,22 @@ public sealed class Creature
         CurrentHp = Math.Min(CurrentHp + amount, MaxHp);
         return CurrentHp - before;
     }
+    
+    /// <summary>上限与当前同加（STS2 GainMaxHp 语义——同伴活着再召唤用）。</summary>
+    public void GainMaxHpInternal(int amount)
+    {
+        if (amount < 0) throw new ArgumentException("必须非负", nameof(amount));
+        MaxHp += amount;
+        CurrentHp += amount;
+    }
+
+    /// <summary>重设上限；当前值超出新上限时钳到上限。</summary>
+    public void SetMaxHpInternal(int value)
+    {
+        if (value < 0) throw new ArgumentException("必须非负", nameof(value));
+        MaxHp = value;
+        if (CurrentHp > MaxHp) CurrentHp = MaxHp;
+    }
 
     // ── buff 挂载（只由 BuffModel.ApplyInternal / RemoveInternal 反向调用）──
 
