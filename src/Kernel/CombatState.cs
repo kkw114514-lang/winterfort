@@ -62,6 +62,14 @@ public sealed class CombatState
         creature.CombatId = _nextCreatureId++;   // 【确定性】入场顺序发号，永不复用
         sideList.Add(creature);
     }
+    
+    /// <summary>死亡/离场时移出名册。CombatId 不清除、不复用——事件日志里留痕。
+    /// 同伴尸体仍留在主人的 PlayerCombatState.Pets 里（Step C 复活用）。</summary>
+    public void RemoveCreature(Creature creature)
+    {
+        if (!_allies.Remove(creature) && !_enemies.Remove(creature))
+            throw new InvalidOperationException($"{creature} 不在本场战斗名册里。");
+    }
 
     // ══ 造牌 ══
 

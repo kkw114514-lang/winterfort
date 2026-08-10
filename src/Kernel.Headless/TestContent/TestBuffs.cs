@@ -1,4 +1,5 @@
 using Kernel;
+using System.Threading.Tasks;
 
 namespace TestContent;
 
@@ -20,4 +21,21 @@ public sealed class TestDummyMonster : MonsterModel
 {
     public override int MinInitialHp => 40;
     public override int MaxInitialHp => 44;
+}
+
+/// <summary>测试不死：一票否决自己主人的死亡，被否决时回 1 血并计数。</summary>
+public sealed class TestUndyingBuff : BuffModel
+{
+    public int TimesPrevented { get; private set; }
+
+    public override BuffPolarity Polarity => BuffPolarity.Positive;
+
+    public override bool ShouldDie(Creature creature) => creature != Owner;
+
+    public override Task AfterPreventingDeath(Creature creature)
+    {
+        TimesPrevented++;
+        creature.HealInternal(1);
+        return Task.CompletedTask;
+    }
 }

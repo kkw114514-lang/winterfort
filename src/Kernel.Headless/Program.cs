@@ -206,12 +206,13 @@ Console.WriteLine("[3] CardModel");
 
 ModelRegistry.Clear();
 ModelRegistry.RegisterAllInAssembly(typeof(TestBasicAttack).Assembly);
+ModelRegistry.RegisterAllInAssembly(typeof(CardModel).Assembly);   // Kernel 侧内容：4 个真 buff
 
 // ── ID 从类名派生 ──
 {
     Check(ModelRegistry.Get<TestBasicAttack>().Id.ToString() == "CARD.TEST_BASIC_ATTACK",
         "ID 从类名机械派生", ModelRegistry.Get<TestBasicAttack>().Id.ToString());
-    Check(ModelRegistry.Count == 8, $"注册了 {ModelRegistry.Count} 个内容（应为 8）");
+    Check(ModelRegistry.Count == 13, $"注册了 {ModelRegistry.Count} 个内容（应为 13）");
 }
 
 // ── canonical 只读 ──
@@ -597,6 +598,181 @@ Console.WriteLine("[5] 牌堆与战斗全景");
     Check(listeners.SequenceEqual(expected),
         "名单顺序写死：友方buff → 友方牌(堆序) → 敌方buff → 敌方怪",
         string.Join(" | ", listeners.Select(l => l.Id.Entry)));
+}
+
+Console.WriteLine();
+Console.WriteLine("[6] Hook 总线与伤害管线");
+
+// 快速搭一场战斗的小工具（局部函数，下面每个块都用）
+(CombatState state, Player hero, Creature enemy) NewFight()
+{
+    var s = new CombatState();
+    var h = new Player("测试者", 70);
+    s.AddPlayer(h);
+    var e = s.CreateCreature(ModelRegistry.New<TestDummyMonster>(), CombatSide.Enemy, 40);
+    return (s, h, e);
+}
+
+// ── 修正链黄金值：力量 + 灼伤（讨论里那个 8→15 的例子）──
+{
+    var (s, h, e) = NewFight();
+    await BuffCmd.Apply<StrengthBuff>(s, h.Creature, 2, null);
+    await BuffCmd.Apply<SearBuff>(s, e, 3, null);
+    await BuffCmd.RaiseSearLevel(s, e, 1, null);          // Ⅰ→Ⅱ
+
+    int dmg = Hook.ModifyDamage(s, e, h.Creature, 8m, ValueProp.Move, null, out var mods);
+    Check(dmg == 15, "8 基伤 +2力量=10，灼伤Ⅱ ×1.5 → 15", $"实际 {dmg}");
+    Check(mods.Count == 2, "out modifiers 记录两位贡献者",
+        string.Join(",", mods.Select(m => m.Id.Entry)));
+}
+
+// ── 弱化截断：那场 6.75 讨论的立碑 ──
+{
+    var (s, h, e) = NewFight();
+    await BuffCmd.Apply<WeakenBuff>(s, h.Creature, 2, null);
+    int dmg = Hook.ModifyDamage(s, e, h.Creature, 9m, ValueProp.Move, null, out _);
+    Check(dmg == 6, "9 × 0.75 = 6.75 → 6（全局唯一取整点）", $"实际 {dmg}");
+}
+
+// ── 灼伤四规则 ──
+{
+    var (s, h, e) = NewFight();
+    Check(!await BuffCmd.RaiseSearLevel(s, e, 1, null), "提级对没有灼伤的目标无效（规则①）");
+
+    var sear = await BuffCmd.Apply<SearBuff>(s, e, 3, null);
+    Check(sear != null && sear.Level == 1 && sear.Amount == 3, "首次施加默认Ⅰ级·3层（规则①）");
+
+    await BuffCmd.Apply<SearBuff>(s, e, 2, null);
+    Check(sear!.Amount == 5 && sear.Level == 1, "加层只加层：3+2=5，等级不动（规则①）");
+
+    await BuffCmd.RaiseSearLevel(s, e, 2, null);
+    Check(sear.Level == 3, "提级累加：Ⅰ+2=Ⅲ（规则①）");
+
+    await BuffCmd.RaiseSearLevel(s, e, 5, null);
+    Check(sear.Level == 4, "封顶Ⅳ（规则①）");
+
+    int dmg = Hook.ModifyDamage(s, e, h.Creature, 8m, ValueProp.Move, null, out _);
+    Check(dmg == 16, "灼伤Ⅳ ×2.0：8→16（规则②）", $"实际 {dmg}");
+
+    await BuffCmd.ChangeAmount(s, sear, -5, null);
+    Check(sear.Removed && !e.HasBuff<SearBuff>(), "层数归零整条消失，等级随之蒸发（规则④）");
+}
+
+// ── 叠层与负力量 ──
+{
+    var (s, h, e) = NewFight();
+    var a = await BuffCmd.Apply<StrengthBuff>(s, h.Creature, 3, null);
+    var b = await BuffCmd.Apply<StrengthBuff>(s, h.Creature, 2, null);
+    Check(ReferenceEquals(a, b) && a!.Amount == 5, "Counter 合层：3+2=5，同一实例");
+    Check(h.Creature.Buffs.Count == 1, "不产生第二个实例");
+
+    await BuffCmd.ChangeAmount(s, a, -7, null);
+    Check(a.Amount == -2 && !a.Removed, "力量可负且负数不移除（AllowNegative）");
+
+    int dmg = Hook.ModifyDamage(s, e, h.Creature, 8m, ValueProp.Move, null, out _);
+    Check(dmg == 6, "负力量参与结算：8-2=6", $"实际 {dmg}");
+
+    await BuffCmd.ChangeAmount(s, a, 2, null);
+    Check(a.Removed && !h.Creature.HasBuff<StrengthBuff>(), "可负 buff 恰好归零才移除（STS2 411 行规则）");
+}
+
+// ── ValueProp 语义 ──
+{
+    var (s, h, e) = NewFight();
+    await BuffCmd.Apply<StrengthBuff>(s, h.Creature, 2, null);
+    await BuffCmd.Apply<SearBuff>(s, e, 3, null);
+
+    int dot = Hook.ModifyDamage(s, e, h.Creature, 5m, ValueProp.None, null, out _);
+    Check(dot == 5, "不带 Move（中毒类直伤）：力量、灼伤都不参与");
+
+    int thorns = Hook.ModifyDamage(s, e, h.Creature, 4m, ValueProp.Move | ValueProp.Unpowered, null, out _);
+    Check(thorns == 4, "Unpowered（荆棘类）：同样全不参与");
+}
+
+// ── 完整管线：破盾 ──
+{
+    var (s, h, e) = NewFight();
+    e.GainBlockInternal(10);
+    await BuffCmd.Apply<StrengthBuff>(s, h.Creature, 2, null);
+    await BuffCmd.Apply<SearBuff>(s, e, 3, null);
+    await BuffCmd.RaiseSearLevel(s, e, 1, null);
+
+    var rs = await CreatureCmd.Damage(s, h.Creature, new[] { e }, 8, ValueProp.Move, null);
+    Check(rs.Count == 1 && rs[0].BlockedDamage == 10 && rs[0].UnblockedDamage == 5 && e.CurrentHp == 35,
+        "15 伤：破 10 盾 + 掉 5 血", $"挡{rs[0].BlockedDamage} 扣{rs[0].UnblockedDamage} hp{e.CurrentHp}");
+    Check(rs[0].WasBlockBroken && !rs[0].WasFullyBlocked, "破盾标记正确");
+    Check(s.Events.Entries.OfType<DamageReceived>().Count() == 1, "一条 DamageReceived 事件");
+}
+
+// ── Unblockable 走管线 ──
+{
+    var (s, h, e) = NewFight();
+    e.GainBlockInternal(10);
+    await CreatureCmd.Damage(s, h.Creature, new[] { e }, 6, ValueProp.Move | ValueProp.Unblockable, null);
+    Check(e.Block == 10 && e.CurrentHp == 34, "Unblockable：无视护盾直击血量");
+}
+
+// ── 舍身代受 + 溢出回流（本批的主菜）──
+{
+    var (s, h, e) = NewFight();
+    var pet = s.AddPet(ModelRegistry.New<TestDummyMonster>(), h, 12);
+    await BuffCmd.Apply<GuardianBuff>(s, pet, 1, null);
+    h.Creature.GainBlockInternal(6);
+
+    var rs = await CreatureCmd.Damage(s, e, new[] { h.Creature }, 20, ValueProp.Move, null);
+    // 20 → 主人的盾挡 6 → 14 → 舍身转给同伴 → 同伴 12 血：实扣 12、溢出 2、阵亡
+    //    → 溢出 2 回流主人
+    Check(rs.Count == 2, "一次打击产生两条结果单（同伴 + 回流）");
+    Check(rs[0].Receiver == pet && rs[0].UnblockedDamage == 12
+          && rs[0].OverkillDamage == 2 && rs[0].WasTargetKilled,
+        "同伴代受：实扣 12 + 溢出 2 + 阵亡", $"扣{rs[0].UnblockedDamage} 溢{rs[0].OverkillDamage}");
+    Check(rs[1].Receiver == h.Creature && rs[1].UnblockedDamage == 2 && h.Creature.CurrentHp == 68,
+        "溢出 2 回流主人：70→68", $"hp {h.Creature.CurrentHp}");
+    Check(rs[1].BlockedDamage == 6 && rs[0].BlockedDamage == 0,
+        "护盾三项记在主人那条上——盾是主人的（同 STS2）");
+    Check(pet.IsDead && s.Allies.Count == 1, "同伴阵亡移出名册");
+    Check(h.PlayerCombatState!.Pets.Count == 1, "尸体仍在同伴名单里（Step C 复活的前提）");
+    Check(s.Events.Entries.OfType<CreatureDied>().Count() == 1, "一条 CreatureDied");
+
+    var rs2 = await CreatureCmd.Damage(s, e, new[] { h.Creature }, 5, ValueProp.Move, null);
+    Check(rs2.Count == 1 && rs2[0].Receiver == h.Creature && h.Creature.CurrentHp == 63,
+        "同伴死后不再代受（舍身的 Owner.IsDead 检查）");
+}
+
+// ── ShouldDie 一票否决 ──
+{
+    var (s, h, e) = NewFight();
+    var undying = ModelRegistry.New<TestUndyingBuff>();
+    undying.ApplyInternal(e, 1);
+
+    await CreatureCmd.Damage(s, h.Creature, new[] { e }, 99, ValueProp.Move, null);
+    Check(e.CurrentHp == 1 && s.Enemies.Count == 1, "死亡被否决：回 1 血留场", $"hp{e.CurrentHp}");
+    Check(undying.TimesPrevented == 1, "AfterPreventingDeath 只通知否决者");
+    Check(!s.Events.Entries.OfType<CreatureDied>().Any(), "没有死亡事件");
+}
+
+// ── GainBlock 走 Cmd ──
+{
+    var (s, h, _) = NewFight();
+    int gained = await CreatureCmd.GainBlock(s, h.Creature, 12, ValueProp.Move, null);
+    Check(gained == 12 && h.Creature.Block == 12, "GainBlock：hook 链 + Internal + 事件");
+    Check(s.Events.Entries.OfType<BlockGained>().Count() == 1, "BlockGained 事件一条");
+}
+
+// ── 确定性：同一脚本两跑，事件日志逐字节相同 ──
+{
+    async Task<string> RunOnce()
+    {
+        var (s, h, e) = NewFight();
+        var log = new List<string>();
+        s.Events.OnEvent += ev => log.Add(ev.ToLogLine());
+        await BuffCmd.Apply<SearBuff>(s, e, 2, null);
+        await BuffCmd.Apply<StrengthBuff>(s, h.Creature, 1, null);
+        await CreatureCmd.Damage(s, h.Creature, new[] { e }, 8, ValueProp.Move, null);
+        await CreatureCmd.GainBlock(s, h.Creature, 5, ValueProp.Move, null);
+        return string.Join("\n", log);
+    }
+    Check(await RunOnce() == await RunOnce(), "事件日志逐字节可复现（里程碑雏形）");
 }
 
 Console.WriteLine();

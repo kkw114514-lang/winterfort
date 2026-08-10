@@ -73,7 +73,7 @@ public sealed record ModelId : IComparable<ModelId>
 ///
 /// 代价见 DeepCloneFields / AfterCloned 上的注释——那是这套设计唯一的软肋。
 /// </summary>
-public abstract class GameModel
+public abstract partial class GameModel
 {
     public ModelId Id { get; }
 
