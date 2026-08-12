@@ -34,7 +34,7 @@ public static class CardPileCmd
                 Round = state.RoundNumber, Side = state.CurrentSide, Card = card,
             });
             Fx.Sfx("card_draw");
-            await Fx.Wait(0.08f);
+            await Fx.CustomScaledWait(0.04f, 0.08f);
             await Hook.AfterCardDrawn(state, card);
         }
         return drawn;
@@ -62,7 +62,7 @@ public static class CardPileCmd
             Player = player, CardCount = moved,
         });
         Fx.Sfx("shuffle");
-        await Fx.Wait(0.2f);
+        await Fx.CustomScaledWait(0.1f, 0.2f);
     }
 
     /// <summary>
@@ -90,7 +90,7 @@ public static class CardPileCmd
             Round = state.RoundNumber, Side = state.CurrentSide, Card = card, To = final,
         });
         Fx.Vfx("card_generate", card.Owner.Creature);
-        await Fx.Wait(0.1f);
+        await Fx.CustomScaledWait(0.05f, 0.1f);
         await Hook.AfterCardGenerated(state, card);
         return card;
     }
@@ -114,7 +114,7 @@ public static class CardPileCmd
             Round = state.RoundNumber, Side = state.CurrentSide, Card = card,
         });
         Fx.Vfx("card_exhaust", card.Owner.Creature);
-        await Fx.Wait(0.1f);
+        await Fx.CustomScaledWait(0.05f, 0.1f);
 
         await card.OnFuel(state);                            // 燃料
         await Hook.AfterCardExhausted(state, card);
@@ -134,6 +134,6 @@ public static class CardPileCmd
             Round = state.RoundNumber, Side = state.CurrentSide,
             Card = card, From = from.Type, To = to.Type,
         });
-        await Fx.Wait(0.05f);
+        await Fx.CustomScaledWait(0.02f, 0.05f);
     }
 }

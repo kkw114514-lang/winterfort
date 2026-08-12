@@ -36,7 +36,7 @@ public static class BuffCmd
             Target = target, Buff = buff, Amount = amount,
         });
         Fx.Vfx("buff_apply", target);
-        await Fx.Wait(0.1f);
+        await Fx.CustomScaledWait(0.05f, 0.1f);
         return buff;
     }
 
@@ -80,7 +80,7 @@ public static class BuffCmd
             Round = state.RoundNumber, Side = state.CurrentSide,
             Target = owner, Buff = buff,
         });
-        await Fx.Wait(0.05f);
+        await Fx.CustomScaledWait(0.02f, 0.05f);
     }
 
     /// <summary>
@@ -104,7 +104,7 @@ public static class BuffCmd
                 Target = target, OldLevel = old, NewLevel = sear.Level,
             });
             Fx.Vfx("sear_up", target);
-            await Fx.Wait(0.1f);
+            await Fx.CustomScaledWait(0.05f, 0.1f);
         }
         return true;
     }

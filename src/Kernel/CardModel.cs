@@ -39,8 +39,11 @@ public abstract partial class CardModel : GameModel
         CanonicalCost = cost;
         _baseCost = cost;
         Type = type;
+
+        if (rarity == CardRarity.None)
+            throw new ArgumentException("None 是算法哨兵，不是卡的稀有度", nameof(rarity));
         Rarity = rarity;
-        
+
         if (element == CardElement.None)
             throw new ArgumentException("卡必须至少有一个系", nameof(element));
         if (element.HasFlag(CardElement.Basic) && element != CardElement.Basic)
@@ -50,14 +53,15 @@ public abstract partial class CardModel : GameModel
     }
 
     /// <summary>
-    /// 是否进掉落池。两类例外：
-    ///   ① 通用基石（Basic）——只作起始卡组素材
-    ///   ② 眷属专属卡——只能靠获得该眷属取得
+    /// 是否进常规掉落池 = 稀有度在权重梯子上。基石、契约师、精灵专属、
+    /// 事件/任务/生成/灾厄/干扰卡全部天然排除——唯一事实来源是 Rarity，
+    /// 不再重复检查 Element（惯例：基石卡必标 CardRarity.Basic）。
     /// </summary>
-    public bool IsInDropPool => Element != CardElement.Basic && !IsFamiliarSignature;
+    public bool IsInDropPool =>
+        Rarity is CardRarity.Common or CardRarity.Uncommon or CardRarity.Rare;
 
-    /// <summary>眷属专属卡覆写成 true。</summary>
-    public virtual bool IsFamiliarSignature => false;
+    /// <summary>精灵（眷属）专属卡。不再是 virtual——这个事实由稀有度承载，只定义一处。</summary>
+    public bool IsFamiliarSignature => Rarity == CardRarity.Familiar;
 
     // ════════ 文本 ════════
 
@@ -104,6 +108,11 @@ public abstract partial class CardModel : GameModel
 
     private int _baseCost;
     public int Cost => Math.Max(0, _baseCost);
+
+    /// <summary>是否有费用。无费牌（CanonicalCost &lt; 0，同 STS2 伤口的 -1 哨兵）
+    /// 不参与一切费用比较，UI 不显示费用数字。注意 Cost 对负数封底为 0——
+    /// 判"无费"只准用本属性，不准拿 Cost == 0 猜。</summary>
+    public bool HasCost => CanonicalCost >= 0;
 
     protected void UpgradeCostBy(int addend)
     {

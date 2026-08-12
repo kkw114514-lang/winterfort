@@ -42,13 +42,14 @@ public static class CardCmd
         // ── 入 Play 堆（物理隔离位）──
         card.Pile?.RemoveInternal(card);
         pcs.PlayPile.AddInternal(card);
+        pcs.RecordPlayInternal(card, state.RoundNumber);   // 史书记账：与 CardPlayStarted 同刻（跟进同款——记在开始，读者排除自己）
         state.Events.Emit(new CardPlayStarted
         {
             Round = state.RoundNumber, Side = state.CurrentSide,
             Card = card, Target = target, IsAutoPlay = isAutoPlay,
         });
         Fx.Sfx("card_play");
-        await Fx.Wait(0.1f);
+        await Fx.CustomScaledWait(0.05f, 0.1f);
 
         // ── 效果本体（多重打出的循环脚手架，现在恒为 1 次）──
         PileType destination = card.DestinationPileAfterPlay;
@@ -127,7 +128,7 @@ public static class CardCmd
                 Round = state.RoundNumber, Side = state.CurrentSide, Card = card,
             });
             Fx.Sfx("card_discard");
-            await Fx.Wait(0.05f);
+            await Fx.CustomScaledWait(0.02f, 0.05f);
             await Hook.AfterCardDiscarded(state, card);
         }
 

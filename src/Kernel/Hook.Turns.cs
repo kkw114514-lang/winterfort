@@ -20,6 +20,12 @@ public static partial class Hook
         return Math.Max(0, count);
     }
 
+    public static async Task AfterTurnStarted(CombatState state, CombatSide side)
+    {
+        foreach (GameModel l in Snapshot(state))
+            if (StillValid(l)) await l.AfterTurnStarted(side);
+    }
+    
     public static async Task AfterTurnEnd(CombatState state, CombatSide side)
     {
         foreach (GameModel l in Snapshot(state))

@@ -128,11 +128,12 @@ public sealed class CombatState
     ///
     ///   逐生物（友方按入场序 → 敌方按入场序）：
     ///     该生物的 buff（按获得序）
-    ///     玩家 → 六个堆里的每张牌（堆序 = AllPiles 序）+ 牌上的附魔/附疫
+    ///     玩家 → 眷属（获得序）→ 信物（获得序）→ 六个堆里的每张牌（堆序 = AllPiles 序）
+    ///            + 牌上的附魔/附疫
     ///     怪物/同伴 → 它的 MonsterModel
     ///
     /// 【你的设计决定】Removed 堆在名单里：移出区的牌被动仍生效。
-    /// （STS2 在玩家段还有 遗物→药水→充能球，等那些系统落地时插回对应位置。）
+    /// （STS2 玩家段这里是 遗物→药水→充能球；药水/充能球位待那些系统落地时插回。）
     /// </summary>
     public IEnumerable<GameModel> IterateHookListeners()
     {
@@ -143,15 +144,20 @@ public sealed class CombatState
 
             if (creature.Player != null)
             {
+                foreach (FamiliarModel familiar in creature.Player.Familiars)
+                    yield return familiar;
+                foreach (PledgeModel pledge in creature.Player.Pledges)
+                    yield return pledge;
+
                 PlayerCombatState? pcs = creature.Player.PlayerCombatState;
                 if (pcs == null) continue;
                 foreach (CardPile pile in pcs.AllPiles)
-                    foreach (CardModel card in pile.Cards)
-                    {
-                        yield return card;
-                        if (card.Enchantment != null) yield return card.Enchantment;
-                        if (card.Affliction != null) yield return card.Affliction;
-                    }
+                foreach (CardModel card in pile.Cards)
+                {
+                    yield return card;
+                    if (card.Enchantment != null) yield return card.Enchantment;
+                    if (card.Affliction != null) yield return card.Affliction;
+                }
             }
             else if (creature.Monster != null)
             {

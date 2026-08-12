@@ -88,7 +88,7 @@ public static class CreatureCmd
                     Fx.Anim(r.Receiver, "hurt");
             }
             Fx.Sfx("hit");
-            await Fx.Wait(0.15f);
+            await Fx.CustomScaledWait(0.08f, 0.15f);
 
             // 反应钩子（先让在场者跟做，再结死亡——荆棘在目标咽气前弹出）
             foreach (DamageResult r in hits)
@@ -121,7 +121,7 @@ public static class CreatureCmd
         });
         Fx.Sfx("block_gain");
         Fx.Vfx("block", creature);
-        await Fx.Wait(0.1f);
+        await Fx.CustomScaledWait(0.05f, 0.1f);
         return gained;
     }
 
@@ -137,12 +137,31 @@ public static class CreatureCmd
                 Target = creature, Amount = healed,
             });
             Fx.Vfx("heal", creature);
-            await Fx.Wait(0.1f);
+            await Fx.CustomScaledWait(0.05f, 0.1f);
         }
         return healed;
     }
 
-    /// <summary>死亡流程。返回 false = 被 ShouldDie 一票否决。</summary>
+    /// <summary>裸掉血(裁定④:自伤类)。不走伤害管线——不吃盾、不吃任何修正;
+    /// 但死亡结算照走(自伤致死也是死)。对应 STS2 Damage 与 HpLoss 之分。</summary>
+    public static async Task LoseHp(CombatState state, Creature creature, int amount)
+    {
+        if (creature.IsDead || amount <= 0) return;
+        DamageResult r = creature.LoseHpInternal(amount, ValueProp.None);
+        state.Events.Emit(new HpLost
+        {
+            Round = state.RoundNumber, Side = state.CurrentSide,
+            Target = creature, Amount = r.UnblockedDamage,
+        });
+        Fx.Vfx("hp_loss", creature);
+        await Fx.CustomScaledWait(0.05f, 0.1f);
+        if (r.WasTargetKilled) await Die(state, creature, null, null);
+    }
+
+    /// <summary>死亡流程。返回 false = 被 ShouldDie 一票否决。
+    /// 【时序同 STS2】KillWithoutCheckingWinCondition 先分发 AfterDeath、后出名单清 power——
+    /// 死者自己的 buff 要能听到自己的死（终期爆发的前提），所以 AfterCreatureDied
+    /// 在 RemoveCreature 之前。</summary>
     public static async Task<bool> Die(CombatState state, Creature creature, Creature? killer, CardModel? source)
     {
         if (!Hook.ShouldDie(state, creature, out GameModel? preventer))
@@ -152,10 +171,6 @@ public static class CreatureCmd
             return false;
         }
 
-        state.RemoveCreature(creature);
-        // 注意：同伴尸体仍留在主人的 PlayerCombatState.Pets 里——Step C 复活流程的前提。
-        // STS2 的 ShouldCreatureBeRemovedFromCombatAfterDeath（尸体留场显示）到 Step C 一起做。
-
         state.Events.Emit(new CreatureDied
         {
             Round = state.RoundNumber, Side = state.CurrentSide,
@@ -163,8 +178,14 @@ public static class CreatureCmd
         });
         Fx.Anim(creature, "die");
         Fx.Sfx("die");
-        await Fx.Wait(0.2f);
+        await Fx.CustomScaledWait(0.1f, 0.2f);
+
+        // 遗言时点：死者仍在名单里，Snapshot 收得到它身上的 buff。
         await Hook.AfterCreatureDied(state, creature, killer, source);
+
+        state.RemoveCreature(creature);
+        // 注意：同伴尸体仍留在主人的 PlayerCombatState.Pets 里——Step C 复活流程的前提。
+        // STS2 的 ShouldCreatureBeRemovedFromCombatAfterDeath（尸体留场显示）到 Step C 一起做。
         return true;
     }
 }

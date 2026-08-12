@@ -74,3 +74,10 @@ public sealed class CreatureDied : CombatEvent
     public Creature? Killer { get; init; }
     public override string Description => $"{Creature.Name} 阵亡";
 }
+
+public sealed class HpLost : CombatEvent
+{
+    public required Creature Target { get; init; }
+    public int Amount { get; init; }
+    public override string Description => $"{Target.Name} 失去 {Amount} 点生命";
+}

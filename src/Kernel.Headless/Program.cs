@@ -1,5 +1,11 @@
 ﻿using Kernel;
 using TestContent;
+using Kernel.Content.Buffs;
+using Kernel.Content.Cards;
+using Kernel.Content.Monsters;
+using Kernel.Content.Familiars;
+using Kernel.Content.Pledges;
+
 Console.OutputEncoding = System.Text.Encoding.UTF8;
 
 int failures = 0;
@@ -206,13 +212,13 @@ Console.WriteLine("[3] CardModel");
 
 ModelRegistry.Clear();
 ModelRegistry.RegisterAllInAssembly(typeof(TestBasicAttack).Assembly);
-ModelRegistry.RegisterAllInAssembly(typeof(CardModel).Assembly);   // Kernel 侧内容：4 个真 buff
+ModelRegistry.RegisterAllInAssembly(typeof(CardModel).Assembly);   // Kernel 侧内容：4 真 buff + Content/ 真内容
 
 // ── ID 从类名派生 ──
 {
     Check(ModelRegistry.Get<TestBasicAttack>().Id.ToString() == "CARD.TEST_BASIC_ATTACK",
         "ID 从类名机械派生", ModelRegistry.Get<TestBasicAttack>().Id.ToString());
-    Check(ModelRegistry.Count == 26, $"注册了 {ModelRegistry.Count} 个内容（应为 26）");
+    Check(ModelRegistry.Count == 43, $"注册了 {ModelRegistry.Count} 个内容（应为 43）");
 }
 
 // ── canonical 只读 ──
@@ -313,7 +319,7 @@ ModelRegistry.RegisterAllInAssembly(typeof(CardModel).Assembly);   // Kernel 侧
 // ── 掉落池归属 ──
 {
     Check(ModelRegistry.Get<TestBasicAttack>().IsInDropPool, "火系卡进掉落池");
-    Check(ModelRegistry.AllOf<CardModel>().Count() == 14, "AllOf<CardModel> 数量正确（5 旧 + 7 打出测试卡+ 2 回合测试卡）");
+    Check(ModelRegistry.AllOf<CardModel>().Count() == 19, "AllOf<CardModel> 数量正确（5 旧 + 7 打出测试卡 + 2 回合测试卡 + 5 真卡）");
 }
 Console.WriteLine();
 Console.WriteLine("[4] Creature 身体层");
@@ -1206,6 +1212,872 @@ Console.WriteLine("[9] 同伴召唤全流程");
 }
 
 Console.WriteLine();
+Console.WriteLine("[10] 真内容第一战：Infanta vs 求终者哨兵");
+
+// ── 主战：耳环同款策略整场打完 ──
+{
+    async Task<(string log, bool victory, int rounds, List<string> intents, int layers, int deathRound, int openingHand)>
+        RunInfanta(string seed)
+    {
+        var s = new CombatState(new RngSet(seed));
+        var infanta = new Player("Infanta", 80);
+        s.AddPlayer(infanta);
+        for (int i = 0; i < 5; i++) infanta.Deck.AddInternal(ModelRegistry.New<Attack>());
+        for (int i = 0; i < 5; i++) infanta.Deck.AddInternal(ModelRegistry.New<Defend>());
+        infanta.Deck.AddInternal(ModelRegistry.New<Ignite>());
+        var sentry = CombatCmd.SpawnEnemy(s, ModelRegistry.New<QuietusSentry>());
+
+        var log = new List<string>();
+        var intents = new List<string>();
+        int layers = -1, deathRound = -1;
+        s.Events.OnEvent += ev =>
+        {
+            log.Add(ev.ToLogLine());
+            if (ev is MonsterIntentRolled ir) intents.Add(ir.MoveName);
+            if (ev is CreatureDied d && d.Creature == sentry)
+            {   // 事件在爆炸 hook 之前发出，此刻层数还没被死亡流程动过
+                layers = sentry.GetBuffAmount<QuietusBuff>();
+                deathRound = s.RoundNumber;
+            }
+        };
+        await CombatCmd.StartCombat(s, infanta);
+        int openingHand = infanta.PlayerCombatState!.Hand.Count;
+
+        while (!s.IsOver && s.RoundNumber <= 30)
+        {
+            for (int plays = 0; plays < 13 && !s.IsOver; plays++)
+            {
+                var pcs = infanta.PlayerCombatState!;
+                CardModel? card = pcs.Hand.Cards.FirstOrDefault(c => c.CanPlay());
+                if (card == null) break;
+                Creature? target = card.TargetType == TargetType.SingleEnemy
+                    ? s.Enemies.FirstOrDefault(e => e.IsAlive) : null;
+                if (card.TargetType == TargetType.SingleEnemy && target == null) break;
+                await CardCmd.Play(s, card, target);
+                CombatCmd.CheckEnd(s);
+            }
+            if (s.IsOver) break;
+            await CombatCmd.EndPlayerTurn(s, infanta);
+            await CombatCmd.EnemyTurn(s);
+            if (!s.IsOver) await CombatCmd.StartPlayerTurn(s, infanta);
+        }
+        return (string.Join("\n", log), s.Victory, s.RoundNumber, intents, layers, deathRound, openingHand);
+    }
+
+    var (log1, win1, rounds1, intents1, layers1, dr1, hand1) = await RunInfanta("INFANTA-1");
+    Check(hand1 == 5, "Infanta 首回合抽 5（默认基数）", $"手 {hand1}");
+    Check(win1 && rounds1 <= 30, $"整场获胜（第 {rounds1} 回合，死亡爆炸 {layers1} 层）");
+
+    string[] cycle = { "止刃", "急刺", "据守" };
+    bool intentsOk = intents1.Count >= 2 && intents1[0] == "终期"
+        && intents1.Skip(1).Select((n, i) => n == cycle[i % 3]).All(x => x);
+    Check(intentsOk, "选招表兑现：终期开场一次，此后严格三招循环", string.Join(",", intents1));
+    Check(layers1 == dr1 - 1, "终期时间线：层数 == 死亡回合 − 1（回合开始+1 版,不变量不动）", $"层 {layers1} / 死于 R{dr1}");
+
+    var (log2, win2, _, _, _, _, _) = await RunInfanta("INFANTA-1");
+    Check(win2 && log1 == log2, "同种子两跑，日志逐字节相同");
+    var (log3, _, _, _, _, _, _) = await RunInfanta("INFANTA-B");
+    Check(log1 != log3, "换种子日志不同");
+}
+
+// ── 终期精确账：+1 节奏 / 吃盾 / 吃灼伤 ──
+{
+    var s = new CombatState(new RngSet("quietus-math"));
+    var infanta = new Player("Infanta", 80);
+    s.AddPlayer(infanta);
+    var sentry = CombatCmd.SpawnEnemy(s, ModelRegistry.New<QuietusSentry>());
+    await CombatCmd.StartCombat(s, infanta);            // 空牌库＝抽 0，本景不出牌
+    Check(sentry.Monster!.NextMove!.Name == "终期", "R1 意图＝终期");
+
+    await CombatCmd.EndPlayerTurn(s, infanta);
+    await CombatCmd.EnemyTurn(s);                       // 终期施放:1 层出生(裁定⑦)
+    Check(sentry.GetBuffAmount<QuietusBuff>() == 1, "R1 行动完：终期 1（1 层出生）");
+
+    await CombatCmd.StartPlayerTurn(s, infanta);        // R2
+    Check(sentry.Monster!.NextMove!.Name == "止刃", "R2 意图＝止刃");
+    await CombatCmd.EndPlayerTurn(s, infanta);
+    await CombatCmd.EnemyTurn(s);                       // 回合开始 +1 → 终期 2;止刃 7 直击（眷属非生物，无人代受）
+    Check(infanta.Creature.CurrentHp == 73 && sentry.GetBuffAmount<QuietusBuff>() == 2,
+        "R2：Infanta 80→73，终期 2", $"hp {infanta.Creature.CurrentHp}");
+
+    await CombatCmd.StartPlayerTurn(s, infanta);        // R3：动手
+    await BuffCmd.Apply<SearBuff>(s, infanta.Creature, 3, null);   // 契约师带灼伤Ⅰ·3
+    infanta.Creature.GainBlockInternal(1);
+    int hpBefore = infanta.Creature.CurrentHp;
+    await CreatureCmd.Damage(s, infanta.Creature, new[] { sentry }, 999, ValueProp.Move, null);
+
+    Check(sentry.IsDead && s.Enemies.Count == 0, "哨兵死亡出名册");
+    Check(infanta.Creature.CurrentHp == hpBefore - 4 && infanta.Creature.Block == 0,
+        "爆炸走完整管线：2 层 ×2＝4，×1.25（灼伤Ⅰ）＝5，护盾挡 1、血扣 4", $"hp {infanta.Creature.CurrentHp}");
+    Check(CombatCmd.CheckEnd(s) && s.Victory, "胜利");
+}
+
+// ── 秒杀：终期未施放 → 零爆炸 ──
+{
+    var s = new CombatState(new RngSet("quietus-instakill"));
+    var infanta = new Player("Infanta", 80);
+    s.AddPlayer(infanta);
+    var sentry = CombatCmd.SpawnEnemy(s, ModelRegistry.New<QuietusSentry>());
+    await CombatCmd.StartCombat(s, infanta);            // R1 玩家回合，它还没行动
+    await CreatureCmd.Damage(s, infanta.Creature, new[] { sentry }, 999, ValueProp.Move, null);
+    Check(sentry.IsDead && sentry.GetBuff<QuietusBuff>() == null, "秒杀：终期从未上身");
+    Check(infanta.Creature.CurrentHp == 80, "零爆炸：Infanta 满血");
+}
+
+Console.WriteLine();
+Console.WriteLine("[11] 眷属与换步：史书 / 检索 / 踏焰");
+
+// ── 换步：双分支检索 + 无匹配落空（无眷属，顺带证明检索不算摸牌）──
+{
+    var s = new CombatState(new RngSet("shiftstep-basic"));
+    var infanta = new Player("Infanta", 80);
+    s.AddPlayer(infanta);
+    var pcs = infanta.PlayerCombatState!;
+    CombatCmd.SpawnEnemy(s, ModelRegistry.New<QuietusSentry>());
+    await CombatCmd.StartCombat(s, infanta);                 // 空牌库：抽 0，能量 3
+
+    var d1 = s.CreateCard<TestDefendPlay>(infanta); pcs.DrawPile.AddInternal(d1);
+    var d2 = s.CreateCard<TestDefendPlay>(infanta); pcs.DrawPile.AddInternal(d2);
+    var a1 = s.CreateCard<TestStrikePlay>(infanta); pcs.DrawPile.AddInternal(a1);
+    var strike = s.CreateCard<TestStrikePlay>(infanta); pcs.Hand.AddInternal(strike);
+    var shift  = s.CreateCard<Shiftstep>(infanta);      pcs.Hand.AddInternal(shift);
+
+    await CardCmd.Play(s, strike, s.Enemies[0]);             // 本回合上一张 = 攻击
+    await CardCmd.Play(s, shift, null);
+    Check(shift.Pile == pcs.ExhaustPile, "换步打出后进消耗堆");
+    Check(pcs.Hand.Count == 1 && pcs.Hand.Cards[0] is TestDefendPlay,
+        "正向分支：上一张是攻击 → 检索到非攻击牌");
+    Check(pcs.DrawPile.Count == 2, "抽牌堆少 1", $"余 {pcs.DrawPile.Count}");
+
+    var shift2 = s.CreateCard<Shiftstep>(infanta); pcs.Hand.AddInternal(shift2);
+    await CardCmd.Play(s, shift2, null);                     // 上一张 = 换步（法术）
+    Check(pcs.Hand.Cards.Contains(a1), "反向分支：上一张非攻击 → 检索到攻击牌");
+    Check(pcs.DrawPile.Count == 1, "抽牌堆再少 1");
+
+    var shift3 = s.CreateCard<Shiftstep>(infanta); pcs.Hand.AddInternal(shift3);
+    await CardCmd.Play(s, shift3, null);                     // 还要攻击，但堆里只剩法术
+    Check(pcs.DrawPile.Count == 1 && pcs.Hand.Count == 2,
+        "无匹配 → 落空：堆手都不动（不翻弃牌堆）");
+    Check(!s.Events.Entries.OfType<CardDrawn>().Any(), "检索不算摸牌：全程零 CardDrawn");
+}
+
+// ── 换步：跨回合落空（窗口只认本回合的证明）──
+{
+    var s = new CombatState(new RngSet("shiftstep-window"));
+    var infanta = new Player("Infanta", 80);
+    s.AddPlayer(infanta);
+    var pcs = infanta.PlayerCombatState!;
+    CombatCmd.SpawnEnemy(s, ModelRegistry.New<QuietusSentry>());
+    await CombatCmd.StartCombat(s, infanta);
+
+    var strike = s.CreateCard<TestStrikePlay>(infanta); pcs.Hand.AddInternal(strike);
+    await CardCmd.Play(s, strike, s.Enemies[0]);             // R1 打了攻击
+    await CombatCmd.EndPlayerTurn(s, infanta);
+    await CombatCmd.EnemyTurn(s);
+    await CombatCmd.StartPlayerTurn(s, infanta);             // R2（洗回并抽回那张攻击）
+
+    var d1 = s.CreateCard<TestDefendPlay>(infanta); pcs.DrawPile.AddInternal(d1);
+    var shift = s.CreateCard<Shiftstep>(infanta);   pcs.Hand.AddInternal(shift);
+    await CardCmd.Play(s, shift, null);                      // 上一张在上回合 → 落空
+    Check(pcs.Hand.Count == 1 && pcs.DrawPile.Count == 1,
+        "跨回合落空：上一张牌属于上回合，本回合窗口不认");
+}
+
+// ── 换步升级：先抽 1 再检索 ──
+{
+    var s = new CombatState(new RngSet("shiftstep-upgraded"));
+    var infanta = new Player("Infanta", 80);
+    s.AddPlayer(infanta);
+    var pcs = infanta.PlayerCombatState!;
+    CombatCmd.SpawnEnemy(s, ModelRegistry.New<QuietusSentry>());
+    await CombatCmd.StartCombat(s, infanta);
+
+    var d1 = s.CreateCard<TestDefendPlay>(infanta); pcs.DrawPile.AddInternal(d1);
+    var d2 = s.CreateCard<TestDefendPlay>(infanta); pcs.DrawPile.AddInternal(d2);
+    var strike = s.CreateCard<TestStrikePlay>(infanta); pcs.Hand.AddInternal(strike);
+    var shiftUp = s.CreateCard<Shiftstep>(infanta); shiftUp.Upgrade(); pcs.Hand.AddInternal(shiftUp);
+    Check(shiftUp.Title == "换步+", "升级卡名带 +", shiftUp.Title);
+
+    await CardCmd.Play(s, strike, s.Enemies[0]);
+    await CardCmd.Play(s, shiftUp, null);                    // 抽 1（摸牌）+ 检索 1（拿牌）
+    Check(pcs.Hand.Count == 2 && pcs.DrawPile.Count == 0,
+        "升级：先抽 1 再检索，两张法术都到手");
+    Check(s.Events.Entries.OfType<CardDrawn>().Count() == 1, "其中恰有 1 次算摸牌（升级的那一抽）");
+}
+
+// ── 踏焰：翻转抽 1 / 每回合一次 / 【改判】窗口只认本回合 ──
+{
+    var s = new CombatState(new RngSet("firestep"));
+    var infanta = new Player("Infanta", 80);
+    infanta.AddFamiliarInternal(ModelRegistry.New<Flamedance>());
+    s.AddPlayer(infanta);
+    var pcs = infanta.PlayerCombatState!;
+    CombatCmd.SpawnEnemy(s, ModelRegistry.New<QuietusSentry>());
+    await CombatCmd.StartCombat(s, infanta);
+
+    for (int i = 0; i < 5; i++)                              // 踏焰抽牌的奖池
+    { var p = s.CreateCard<TestStrikePlay>(infanta); pcs.DrawPile.AddInternal(p); }
+    var atk1 = s.CreateCard<TestStrikePlay>(infanta); pcs.Hand.AddInternal(atk1);
+    var sp1  = s.CreateCard<TestDefendPlay>(infanta); pcs.Hand.AddInternal(sp1);
+    var atk2 = s.CreateCard<TestStrikePlay>(infanta); pcs.Hand.AddInternal(atk2);
+
+    await CardCmd.Play(s, atk1, s.Enemies[0]);               // 史书第一条：没有"上一张"
+    Check(pcs.Hand.Count == 2, "第一张牌不触发踏焰");
+    await CardCmd.Play(s, sp1, null);                        // 攻 → 非攻：翻转
+    Check(pcs.Hand.Count == 2, "翻转触发：抽 1（一出一进）");
+    await CardCmd.Play(s, atk2, s.Enemies[0]);               // 又翻转，但本回合已用过
+    Check(pcs.Hand.Count == 1, "每回合限一次：不再抽");
+
+    await CombatCmd.EndPlayerTurn(s, infanta);
+    await CombatCmd.EnemyTurn(s);
+    await CombatCmd.StartPlayerTurn(s, infanta);             // R2：上回合最后一张 = 攻击
+    var sp2 = s.CreateCard<TestDefendPlay>(infanta); pcs.Hand.AddInternal(sp2);
+    int drawBefore = pcs.DrawPile.Count;
+    await CardCmd.Play(s, sp2, null);                        // 本回合第一张：与上回合末不构成翻转
+    Check(pcs.DrawPile.Count == drawBefore,
+        "【改判 followthrough】窗口只认本回合：新回合第一张不与上回合末翻转");
+    var atk3 = pcs.Hand.Cards.First(c => c is TestStrikePlay);
+    await CardCmd.Play(s, atk3, s.Enemies[0]);               // 非攻 → 攻：本回合内翻转
+    Check(pcs.DrawPile.Count == drawBefore - 1,
+        "本回合内翻转照常触发（新回合额度已刷新）");
+}
+
+// ── 全家桶：Infanta 完整开局（12 卡 + 炎舞）对哨兵，确定性双跑 ──
+{
+    async Task<(string log, bool victory)> RunKit(string seed)
+    {
+        var s = new CombatState(new RngSet(seed));
+        var infanta = new Player("Infanta", 80);
+        infanta.AddFamiliarInternal(ModelRegistry.New<Flamedance>());
+        s.AddPlayer(infanta);
+        for (int i = 0; i < 5; i++) infanta.Deck.AddInternal(ModelRegistry.New<Attack>());
+        for (int i = 0; i < 5; i++) infanta.Deck.AddInternal(ModelRegistry.New<Defend>());
+        infanta.Deck.AddInternal(ModelRegistry.New<Ignite>());
+        infanta.Deck.AddInternal(ModelRegistry.New<Shiftstep>());
+        CombatCmd.SpawnEnemy(s, ModelRegistry.New<QuietusSentry>());
+
+        var log = new List<string>();
+        s.Events.OnEvent += ev => log.Add(ev.ToLogLine());
+        await CombatCmd.StartCombat(s, infanta);
+        while (!s.IsOver && s.RoundNumber <= 30)
+        {
+            for (int plays = 0; plays < 13 && !s.IsOver; plays++)
+            {
+                var pcs = infanta.PlayerCombatState!;
+                CardModel? card = pcs.Hand.Cards.FirstOrDefault(c => c.CanPlay());
+                if (card == null) break;
+                Creature? target = card.TargetType == TargetType.SingleEnemy
+                    ? s.Enemies.FirstOrDefault(e => e.IsAlive) : null;
+                if (card.TargetType == TargetType.SingleEnemy && target == null) break;
+                await CardCmd.Play(s, card, target);
+                CombatCmd.CheckEnd(s);
+            }
+            if (s.IsOver) break;
+            await CombatCmd.EndPlayerTurn(s, infanta);
+            await CombatCmd.EnemyTurn(s);
+            if (!s.IsOver) await CombatCmd.StartPlayerTurn(s, infanta);
+        }
+        return (string.Join("\n", log), s.Victory);
+    }
+
+    var (kl1, kw1) = await RunKit("KIT-1");
+    Check(kw1, "完整开局套装（12 卡 + 炎舞）获胜");
+    var (kl2, _) = await RunKit("KIT-1");
+    Check(kl1 == kl2, "全家桶同种子日志逐字节相同");
+    var (kl3, _) = await RunKit("KIT-B");
+    Check(kl1 != kl3, "换种子日志不同");
+}
+
+Console.WriteLine();
+Console.WriteLine("[12] 信物与赤金王印（灯笼位 hook）");
+
+// ── 王印：第一回合 +1，之后恢复常态 ──
+{
+    var s = new CombatState(new RngSet("vermeil"));
+    var infanta = new Player("Infanta", 80);
+    infanta.AddPledgeInternal(ModelRegistry.New<VermeilSeal>());
+    s.AddPlayer(infanta);
+    var pcs = infanta.PlayerCombatState!;
+    CombatCmd.SpawnEnemy(s, ModelRegistry.New<QuietusSentry>());
+    await CombatCmd.StartCombat(s, infanta);
+    Check(pcs.Energy == 4, "R1：基础 3 + 王印 1 = 4", $"能 {pcs.Energy}");
+    Check(s.Events.Entries.OfType<EnergyGained>().Count() == 1, "EnergyGained 入账 1 条");
+
+    await CombatCmd.EndPlayerTurn(s, infanta);
+    await CombatCmd.EnemyTurn(s);
+    await CombatCmd.StartPlayerTurn(s, infanta);
+    Check(pcs.Energy == 3, "R2：恢复常态 3——只在第一回合", $"能 {pcs.Energy}");
+    Check(s.Events.Entries.OfType<EnergyGained>().Count() == 1, "没有第二条 EnergyGained");
+}
+
+// ── 设计表①完整落地：80 血 / 3 能 / 6 抽 / 12 卡 / 炎舞 / 赤金王印 ──
+{
+    async Task<(string log, bool victory, int energyR1)> RunInfantaComplete(string seed)
+    {
+        var s = new CombatState(new RngSet(seed));
+        var infanta = new Player("Infanta", 80);
+        infanta.AddFamiliarInternal(ModelRegistry.New<Flamedance>());
+        infanta.AddPledgeInternal(ModelRegistry.New<VermeilSeal>());
+        s.AddPlayer(infanta);
+        for (int i = 0; i < 5; i++) infanta.Deck.AddInternal(ModelRegistry.New<Attack>());
+        for (int i = 0; i < 5; i++) infanta.Deck.AddInternal(ModelRegistry.New<Defend>());
+        infanta.Deck.AddInternal(ModelRegistry.New<Ignite>());
+        infanta.Deck.AddInternal(ModelRegistry.New<Shiftstep>());
+        CombatCmd.SpawnEnemy(s, ModelRegistry.New<QuietusSentry>());
+
+        var log = new List<string>();
+        s.Events.OnEvent += ev => log.Add(ev.ToLogLine());
+        await CombatCmd.StartCombat(s, infanta);
+        int energyR1 = infanta.PlayerCombatState!.Energy;
+        while (!s.IsOver && s.RoundNumber <= 30)
+        {
+            for (int plays = 0; plays < 13 && !s.IsOver; plays++)
+            {
+                var pcs = infanta.PlayerCombatState!;
+                CardModel? card = pcs.Hand.Cards.FirstOrDefault(c => c.CanPlay());
+                if (card == null) break;
+                Creature? target = card.TargetType == TargetType.SingleEnemy
+                    ? s.Enemies.FirstOrDefault(e => e.IsAlive) : null;
+                if (card.TargetType == TargetType.SingleEnemy && target == null) break;
+                await CardCmd.Play(s, card, target);
+                CombatCmd.CheckEnd(s);
+            }
+            if (s.IsOver) break;
+            await CombatCmd.EndPlayerTurn(s, infanta);
+            await CombatCmd.EnemyTurn(s);
+            if (!s.IsOver) await CombatCmd.StartPlayerTurn(s, infanta);
+        }
+        return (string.Join("\n", log), s.Victory, energyR1);
+    }
+
+    var (fl1, fw1, fe1) = await RunInfantaComplete("COMPLETE-1");
+    Check(fw1 && fe1 == 4, $"完整 Infanta 开局获胜（R1 能量 {fe1}）");
+    var (fl2, _, _) = await RunInfantaComplete("COMPLETE-1");
+    Check(fl1 == fl2, "【里程碑】设计表①全套同种子日志逐字节相同");
+    var (fl3, _, _) = await RunInfantaComplete("COMPLETE-B");
+    Check(fl1 != fl3, "换种子日志不同");
+}
+
+Console.WriteLine();
+Console.WriteLine("[13] 门铃与围栏：属性事件 / 动作级围栏 / 全体爆炸");
+
+// ── 门铃基础：裸改也响、等值不响、(old,new) 对账 ──
+{
+    var s = new CombatState(new RngSet("bells"));
+    var infanta = new Player("Infanta", 80);
+    s.AddPlayer(infanta);
+    var c = infanta.Creature;
+
+    var rings = new List<(int oldV, int newV)>();
+    c.BlockChanged += (o, n) => rings.Add((o, n));
+    c.GainBlockInternal(5);                            // 裸改 Internal——不走 Cmd
+    Check(rings.Count == 1 && rings[0] == (0, 5), "裸改也响：直捅 Internal 仍触发（setter 全覆盖）");
+    c.LoseBlockInternal(0);                            // 等值写入
+    Check(rings.Count == 1, "等值不响（STS2 守卫原样）");
+    c.DamageBlockInternal(3, ValueProp.None);
+    Check(rings.Count == 2 && rings[1] == (5, 2), "(old,new) 载荷对账", $"{rings[1]}");
+
+    int hpRings = 0;
+    c.CurrentHpChanged += (_, _) => hpRings++;
+    c.LoseHpInternal(4, ValueProp.None);
+    c.HealInternal(0);
+    Check(hpRings == 1 && c.CurrentHp == 76, "血铃：掉血一响、零治疗静默");
+}
+
+// ── buff 四铃：挂→增→减→归零移除（STS2 增减分铃、减不带量）──
+{
+    var s = new CombatState(new RngSet("buff-bells"));
+    var infanta = new Player("Infanta", 80);
+    s.AddPlayer(infanta);
+    var sentry = CombatCmd.SpawnEnemy(s, ModelRegistry.New<QuietusSentry>());
+    var log = new List<string>();
+    sentry.BuffApplied += b => log.Add($"apply:{b.Id.Entry}");
+    sentry.BuffIncreased += (b, d, _) => log.Add($"inc:{d}");
+    sentry.BuffDecreased += (b, _) => log.Add("dec");
+    sentry.BuffRemoved += b => log.Add($"remove:{b.Id.Entry}");
+
+    var venom = await BuffCmd.Apply<TestVenomBuff>(s, sentry, 2, null);
+    await BuffCmd.ChangeAmount(s, venom!, 3, null);
+    await BuffCmd.ChangeAmount(s, venom!, -5, null);   // 归零 → 自动移除
+    Check(string.Join(",", log) == "apply:TEST_VENOM_BUFF,inc:3,dec,remove:TEST_VENOM_BUFF",
+        "四铃时序正确", string.Join(",", log));
+}
+
+// ── 能量铃 + 牌堆铃 ──
+{
+    var s = new CombatState(new RngSet("misc-bells"));
+    var infanta = new Player("Infanta", 80);
+    s.AddPlayer(infanta);
+    var pcs = infanta.PlayerCombatState!;
+    int energyRings = 0, pileRings = 0;
+    pcs.EnergyChanged += (_, _) => energyRings++;
+    pcs.Hand.ContentsChanged += () => pileRings++;
+
+    pcs.ResetEnergy();                                  // 0→3：响
+    pcs.ResetEnergy();                                  // 3→3：静默
+    pcs.GainEnergy(0);                                  // 等值：静默
+    pcs.LoseEnergy(1);                                  // 3→2：响
+    Check(energyRings == 2, "能量铃：两响两静默", $"{energyRings} 响");
+
+    var card = s.CreateCard<TestStrikePlay>(infanta);
+    pcs.Hand.AddInternal(card);
+    pcs.Hand.RemoveInternal(card);
+    Check(pileRings == 2, "牌堆铃：加、移各一响", $"{pileRings} 响");
+}
+
+// ── 动作级围栏：订阅者炸，围栏内死、围栏外活 ──
+{
+    var s = new CombatState(new RngSet("fence"));
+    var infanta = new Player("Infanta", 80);
+    s.AddPlayer(infanta);
+    var sentry = CombatCmd.SpawnEnemy(s, ModelRegistry.New<QuietusSentry>());
+
+    int warns = 0;
+    TaskHelper.OnWarn = _ => warns++;
+    Action<int, int> boom = (_, _) => throw new InvalidOperationException("表现层炸了");
+    sentry.CurrentHpChanged += boom;
+
+    int before = sentry.CurrentHp;
+    await TaskHelper.RunStepSafely(async () =>
+        await CreatureCmd.Damage(s, infanta.Creature, new[] { sentry }, 5, ValueProp.Move, null));
+    Check(warns == 1 && sentry.CurrentHp == before - 5,
+        "围栏接住：已写完的状态保留、驱动不死、警告入账", $"警 {warns} hp {sentry.CurrentHp}");
+
+    sentry.CurrentHpChanged -= boom;                    // 成对退订示范
+    await TaskHelper.RunStepSafely(async () =>
+        await CreatureCmd.Damage(s, infanta.Creature, new[] { sentry }, 5, ValueProp.Move, null));
+    Check(warns == 1 && sentry.CurrentHp == before - 10, "围栏外照常活：下一步正常结算");
+    TaskHelper.OnWarn = null;                           // 清场
+}
+
+// ── 全体爆炸：第一条多玩家断言 ──
+{
+    var s = new CombatState(new RngSet("multi-boom"));
+    var a = new Player("InfantaA", 80);
+    var b = new Player("InfantaB", 80);
+    s.AddPlayer(a); s.AddPlayer(b);
+    var sentry = CombatCmd.SpawnEnemy(s, ModelRegistry.New<QuietusSentry>());
+
+    await BuffCmd.Apply<QuietusBuff>(s, sentry, 2, null);   // 手工喂 2 层，不跑回合
+    await CreatureCmd.Damage(s, a.Creature, new[] { sentry }, 999, ValueProp.Move, null);
+    Check(a.Creature.CurrentHp == 76 && b.Creature.CurrentHp == 76,
+        "死亡爆炸炸全体契约师：两名玩家各吃 4（层数×2）", $"A{a.Creature.CurrentHp} B{b.Creature.CurrentHp}");
+}
+
+Console.WriteLine();
+Console.WriteLine();
+Console.WriteLine("[14] 力量与雪傀儡");
+
+// ── 力量走加段:基伤 6 + 3 力 = 9 ──
+{
+    var s = new CombatState(new RngSet("strength"));
+    var infanta = new Player("Infanta", 80);
+    s.AddPlayer(infanta);
+    var golem = CombatCmd.SpawnEnemy(s, ModelRegistry.New<SnowGolem>());
+    await BuffCmd.Apply<StrengthBuff>(s, golem, 3, null);
+    int before = infanta.Creature.CurrentHp;
+    await CreatureCmd.Damage(s, golem, new[] { infanta.Creature }, 6, ValueProp.Move, null);
+    Check(before - infanta.Creature.CurrentHp == 9, "力量加段:6+3=9",
+        $"实际 {before - infanta.Creature.CurrentHp}");
+}
+
+// ── 循环次序与掷血 ──
+{
+    var s = new CombatState(new RngSet("golem"));
+    var infanta = new Player("Infanta", 80);
+    s.AddPlayer(infanta);
+    var golem = CombatCmd.SpawnEnemy(s, ModelRegistry.New<SnowGolem>());
+    Check(golem.MaxHp >= 38 && golem.MaxHp <= 42, "血量在 38–42 掷定", $"{golem.MaxHp}");
+
+    var names = new List<string>();
+    for (int i = 0; i < 4; i++)
+    {
+        golem.Monster!.RollNextMove(s);
+        names.Add(golem.Monster.NextMove!.Name);
+    }
+    Check(string.Join(",", names) == "抡砸,积雪,横扫,抡砸", "三招严格循环", string.Join(",", names));
+}
+
+// ── 积雪吃进全局公式:两招攻击一起变痛,意图与实算同链 ──
+{
+    var s = new CombatState(new RngSet("golem-strength"));
+    var infanta = new Player("Infanta", 80);
+    s.AddPlayer(infanta);
+    var golem = CombatCmd.SpawnEnemy(s, ModelRegistry.New<SnowGolem>());
+
+    golem.Monster!.RollNextMove(s);                    // 声明 抡砸(不执行)
+    golem.Monster.RollNextMove(s);                     // 声明 积雪
+    await golem.Monster.TakeTurn(s);                   // 执行:+6 盾 +1 力
+    Check(golem.Block == 6, "积雪 +6 盾", $"{golem.Block}");
+
+    golem.Monster.RollNextMove(s);                     // 声明 横扫
+    Check(golem.Monster.IntentPreviewDamage(s) == 7, "横扫意图 6+1=7(意图=实算同链)",
+        $"{golem.Monster.IntentPreviewDamage(s)}");
+    int before = infanta.Creature.CurrentHp;
+    await golem.Monster.TakeTurn(s);
+    Check(before - infanta.Creature.CurrentHp == 7 && golem.Block == 9,
+        "横扫实打 7 且 +3 盾", $"伤 {before - infanta.Creature.CurrentHp} 盾 {golem.Block}");
+
+    golem.Monster.RollNextMove(s);                     // 声明 抡砸
+    Check(golem.Monster.IntentPreviewDamage(s) == 13, "抡砸意图 12+1=13——'别只加在抡砸上'反向也验了",
+        $"{golem.Monster.IntentPreviewDamage(s)}");
+}
+Console.WriteLine();
+Console.WriteLine("[15] 棘背兽:竖刺只认法术、实时计数");
+
+// ── 裁定①②:攻击牌不喂刺,法术当场涨段 ──
+{
+    var s = new CombatState(new RngSet("quill"));
+    var infanta = new Player("Infanta", 80);
+    s.AddPlayer(infanta);
+    for (int i = 0; i < 2; i++) infanta.Deck.AddInternal(ModelRegistry.New<Shiftstep>());
+    infanta.Deck.AddInternal(ModelRegistry.New<Attack>());
+    var quill = CombatCmd.SpawnEnemy(s, ModelRegistry.New<Quillback>());
+    Check(quill.MaxHp >= 50 && quill.MaxHp <= 54, "血量在 50–54 掷定", $"{quill.MaxHp}");
+
+    await CombatCmd.StartCombat(s, infanta);
+    Check(quill.Monster!.NextMove!.Name == "蜷伏", "首回合必蜷伏");
+    var pcs = infanta.PlayerCombatState!;
+
+    await CardCmd.Play(s, pcs.Hand.Cards.First(c => c is Shiftstep), null);   // 法术 #1
+    await CombatCmd.EndPlayerTurn(s, infanta);
+    await CombatCmd.EnemyTurn(s);                                             // 执行蜷伏
+    Check(infanta.Creature.CurrentHp == 80, "蜷伏无动作");
+    await CombatCmd.StartPlayerTurn(s, infanta);
+
+    Check(quill.Monster.NextMove!.Name == "抖刺", "此后恒抖刺");
+    Check(quill.Monster.IntentPreviewHits(s) == 2, "已打 1 法术:意图 3×2",
+        $"×{quill.Monster.IntentPreviewHits(s)}");
+
+    await CardCmd.Play(s, pcs.Hand.Cards.First(c => c is Attack), quill);
+    Check(quill.Monster.IntentPreviewHits(s) == 2, "攻击牌不喂刺(裁定①)",
+        $"×{quill.Monster.IntentPreviewHits(s)}");
+
+    await CardCmd.Play(s, pcs.Hand.Cards.First(c => c is Shiftstep), null);   // 法术 #2
+    Check(quill.Monster.IntentPreviewHits(s) == 3, "法术当场涨段(裁定②)",
+        $"×{quill.Monster.IntentPreviewHits(s)}");
+
+    int before = infanta.Creature.CurrentHp;
+    await CombatCmd.EndPlayerTurn(s, infanta);
+    await CombatCmd.EnemyTurn(s);
+    Check(before - infanta.Creature.CurrentHp == 9, "抖刺执行 3×3=9(执行时实算)",
+        $"实伤 {before - infanta.Creature.CurrentHp}");
+}
+
+// ── 上限 5 ──
+{
+    var s = new CombatState(new RngSet("quill-cap"));
+    var infanta = new Player("Infanta", 80);
+    s.AddPlayer(infanta);
+    for (int i = 0; i < 6; i++) infanta.Deck.AddInternal(ModelRegistry.New<Shiftstep>());
+    var quill = CombatCmd.SpawnEnemy(s, ModelRegistry.New<Quillback>());
+
+    await CombatCmd.StartCombat(s, infanta);
+    var pcs = infanta.PlayerCombatState!;
+    while (pcs.Hand.Cards.FirstOrDefault(c => c is Shiftstep) is { } spell)
+        await CardCmd.Play(s, spell, null);                                   // 0 费连打 5 张
+    await CombatCmd.EndPlayerTurn(s, infanta);
+    await CombatCmd.EnemyTurn(s);                                             // 蜷伏
+    await CombatCmd.StartPlayerTurn(s, infanta);
+
+    Check(quill.Monster!.IntentPreviewHits(s) == 5, "1+5 打到上限:意图 3×5",
+        $"×{quill.Monster.IntentPreviewHits(s)}");
+    int before = infanta.Creature.CurrentHp;
+    await CombatCmd.EndPlayerTurn(s, infanta);
+    await CombatCmd.EnemyTurn(s);
+    Check(before - infanta.Creature.CurrentHp == 15, "抖刺执行 3×5=15(封顶)",
+        $"实伤 {before - infanta.Creature.CurrentHp}");
+}
+Console.WriteLine();
+Console.WriteLine("[16] 霜蛭:消融与吸附");
+
+// ── 消融 = Frail 判例:只打折卡牌盾,链出口向下取整 ──
+{
+    var s = new CombatState(new RngSet("ablation"));
+    var infanta = new Player("Infanta", 80);
+    s.AddPlayer(infanta);
+    CombatCmd.SpawnEnemy(s, ModelRegistry.New<Rimeleech>());
+    await BuffCmd.Apply<AblationBuff>(s, infanta.Creature, 1, null);
+
+    var defend = ModelRegistry.New<Defend>();
+    int fromCard = await CreatureCmd.GainBlock(s, infanta.Creature, 5, ValueProp.Move, defend);
+    Check(fromCard == 3, "卡牌盾 5×0.75=3.75 → 3(向下取整在链出口)", $"得 {fromCard}");
+
+    int fromMove = await CreatureCmd.GainBlock(s, infanta.Creature, 5, ValueProp.Move, null);
+    Check(fromMove == 5, "非卡牌来源的盾不受影响(Frail 原判)", $"得 {fromMove}");
+
+    await Hook.AfterTurnEnd(s, CombatSide.Enemy);
+    Check(infanta.Creature.Buffs.Count == 0, "Duration:1 层 = 1 回合,tick 后整条消失");
+}
+
+// ── 吸附两分支 + 裸自伤不吃盾(裁定④断言化)──
+{
+    var s = new CombatState(new RngSet("latch"));
+    var infanta = new Player("Infanta", 80);
+    s.AddPlayer(infanta);
+    var leech = CombatCmd.SpawnEnemy(s, ModelRegistry.New<Rimeleech>());
+    Check(leech.MaxHp >= 40 && leech.MaxHp <= 44, "血量在 40–44 掷定", $"{leech.MaxHp}");
+
+    await CreatureCmd.GainBlock(s, infanta.Creature, 3, ValueProp.Move, null);
+    await Hook.AfterTurnEnd(s, CombatSide.Player);
+    Check(leech.Buffs.Any(b => b is StrengthBuff { Amount: 2 }), "剩盾喂力量:+2");
+
+    infanta.Creature.LoseBlockInternal(infanta.Creature.Block);
+    await CreatureCmd.GainBlock(s, leech, 5, ValueProp.Move, null);
+    int hpBefore = leech.CurrentHp;
+    await Hook.AfterTurnEnd(s, CombatSide.Player);
+    Check(leech.CurrentHp == hpBefore - 5 && leech.Block == 5,
+        "零盾自伤 5,且不吃自己的盾(裁定④:裸)", $"HP {hpBefore}→{leech.CurrentHp} 盾 {leech.Block}");
+}
+
+// ── 循环次序 ──
+{
+    var s = new CombatState(new RngSet("leech-cycle"));
+    var infanta = new Player("Infanta", 80);
+    s.AddPlayer(infanta);
+    var leech = CombatCmd.SpawnEnemy(s, ModelRegistry.New<Rimeleech>());
+    var names = new List<string>();
+    for (int i = 0; i < 4; i++) { leech.Monster!.RollNextMove(s); names.Add(leech.Monster.NextMove!.Name); }
+    Check(string.Join(",", names) == "啃噬,蚀甲,硬皮,啃噬", "三招严格循环", string.Join(",", names));
+}
+
+// ── 蚀甲上钩 ──
+{
+    var s = new CombatState(new RngSet("corrode"));
+    var infanta = new Player("Infanta", 80);
+    s.AddPlayer(infanta);
+    var leech = CombatCmd.SpawnEnemy(s, ModelRegistry.New<Rimeleech>());
+    leech.Monster!.RollNextMove(s);
+    leech.Monster.RollNextMove(s);
+    int before = infanta.Creature.CurrentHp;
+    await leech.Monster.TakeTurn(s);
+    Check(before - infanta.Creature.CurrentHp == 4
+          && infanta.Creature.Buffs.Any(b => b is AblationBuff { Amount: 1 }),
+        "蚀甲:4 伤 + 1 层消融上身", $"伤 {before - infanta.Creature.CurrentHp}");
+}
+Console.WriteLine();
+Console.WriteLine("[17] 讨食灵:讨要吃牌(原创机制,边界加倍)");
+
+// ── 吃最高费 + 冻僵不参与比价 ──
+{
+    var s = new CombatState(new RngSet("waif"));
+    var infanta = new Player("Infanta", 80);
+    s.AddPlayer(infanta);
+    var waif = CombatCmd.SpawnEnemy(s, ModelRegistry.New<Waif>());
+    Check(waif.MaxHp >= 48 && waif.MaxHp <= 52, "血量在 48–52 掷定", $"{waif.MaxHp}");
+    var pcs = infanta.PlayerCombatState!;
+    pcs.DiscardPile.AddInternal(s.CreateCard<Shiftstep>(infanta));       // 0 费
+    pcs.DiscardPile.AddInternal(s.CreateCard<Attack>(infanta));          // 1 费 ← 该被吃
+    var junk = s.CreateCard<Frostbitten>(infanta);
+    pcs.DiscardPile.AddInternal(junk);                                   // 无费:不参与
+    await Hook.AfterTurnEnd(s, CombatSide.Player);
+    Check(pcs.ExhaustPile.Cards.Any(c => c is Attack), "吃走费用最高的攻击(1 费)");
+    Check(pcs.DiscardPile.Cards.Contains(junk) && pcs.DiscardPile.Cards.Any(c => c is Shiftstep),
+        "冻僵与低费牌原地不动(无费用不参与比价)");
+    Check(!junk.CanPlay(), "冻僵不可打出(Unplayable)");
+}
+
+// ── 囤积那拍吃 2;空弃牌堆安全落空 ──
+{
+    var s = new CombatState(new RngSet("hoard"));
+    var infanta = new Player("Infanta", 80);
+    s.AddPlayer(infanta);
+    var waif = CombatCmd.SpawnEnemy(s, ModelRegistry.New<Waif>());
+    var pcs = infanta.PlayerCombatState!;
+    waif.Monster!.RollNextMove(s);                                       // 抢夺
+    waif.Monster.RollNextMove(s);                                        // 回赠
+    waif.Monster.RollNextMove(s);                                        // 囤积 ← 亮着
+    pcs.DiscardPile.AddInternal(s.CreateCard<Attack>(infanta));
+    pcs.DiscardPile.AddInternal(s.CreateCard<Defend>(infanta));
+    pcs.DiscardPile.AddInternal(s.CreateCard<Shiftstep>(infanta));
+    await Hook.AfterTurnEnd(s, CombatSide.Player);
+    Check(pcs.ExhaustPile.Count == 2 && pcs.DiscardPile.Count == 1,
+        "囤积那一拍吃 2 张(两张 1 费先走)", $"耗 {pcs.ExhaustPile.Count} 剩 {pcs.DiscardPile.Count}");
+    pcs.DiscardPile.RemoveInternal(pcs.DiscardPile.Cards[0]);
+    await Hook.AfterTurnEnd(s, CombatSide.Player);
+    Check(pcs.ExhaustPile.Count == 2, "空弃牌堆:安全落空不崩");
+}
+
+// ── 回赠塞牌 + 循环次序 ──
+{
+    var s = new CombatState(new RngSet("handout"));
+    var infanta = new Player("Infanta", 80);
+    s.AddPlayer(infanta);
+    var waif = CombatCmd.SpawnEnemy(s, ModelRegistry.New<Waif>());
+    var pcs = infanta.PlayerCombatState!;
+    waif.Monster!.RollNextMove(s);                                       // 抢夺(声明)
+    waif.Monster.RollNextMove(s);                                        // 回赠
+    int before = infanta.Creature.CurrentHp;
+    await waif.Monster.TakeTurn(s);
+    Check(before - infanta.Creature.CurrentHp == 7
+          && pcs.DiscardPile.Cards.Any(c => c is Frostbitten),
+        "回赠:7 伤 + 1 张冻僵进弃牌堆", $"伤 {before - infanta.Creature.CurrentHp}");
+    waif.Monster.RollNextMove(s);
+    Check(waif.Monster.NextMove!.Name == "囤积", "循环第三拍是囤积");
+    waif.Monster.RollNextMove(s);
+    Check(waif.Monster.NextMove!.Name == "抢夺", "循环闭合回抢夺");
+}
+Console.WriteLine();
+Console.WriteLine("[18] 哨兵 rework 与回合钩子致死");
+
+// ── 新循环名与开场一次 ──
+{
+    var s = new CombatState(new RngSet("rework"));
+    var infanta = new Player("Infanta", 80);
+    s.AddPlayer(infanta);
+    var sentry = CombatCmd.SpawnEnemy(s, ModelRegistry.New<QuietusSentry>());
+    var names = new List<string>();
+    for (int i = 0; i < 5; i++) { sentry.Monster!.RollNextMove(s); names.Add(sentry.Monster.NextMove!.Name); }
+    Check(string.Join(",", names) == "终期,止刃,急刺,据守,止刃",
+        "开场一次终期,循环止刃/急刺/据守", string.Join(",", names));
+}
+
+// ── 爆炸 ×2 裸账(无灼伤无盾)──
+{
+    var s = new CombatState(new RngSet("boom2"));
+    var infanta = new Player("Infanta", 80);
+    s.AddPlayer(infanta);
+    var sentry = CombatCmd.SpawnEnemy(s, ModelRegistry.New<QuietusSentry>());
+    await BuffCmd.Apply<QuietusBuff>(s, sentry, 3, null);
+    await CreatureCmd.Damage(s, infanta.Creature, new[] { sentry }, 999, ValueProp.Move, null);
+    Check(infanta.Creature.CurrentHp == 74, "3 层 ×2 = 6 点爆炸", $"hp {infanta.Creature.CurrentHp}");
+}
+
+// ── 回合钩子致死 → 当场终局(M3 挂账兑现)──
+{
+    var s = new CombatState(new RngSet("hook-death"));
+    var infanta = new Player("Infanta", 80);
+    s.AddPlayer(infanta);
+    var leech = CombatCmd.SpawnEnemy(s, ModelRegistry.New<Rimeleech>());
+    leech.LoseHpInternal(leech.CurrentHp - 5, ValueProp.None);   // 压到 5 血
+    await CombatCmd.StartCombat(s, infanta);                     // 空牌库:抽 0
+    await CombatCmd.EndPlayerTurn(s, infanta);                   // 0 盾 → 吸附自伤 5 → 死在钩子里
+    Check(s.IsOver && s.Victory, "钩子里死人,当场判胜(不再僵尸局)");
+}
+Console.WriteLine();
+Console.WriteLine("[19] 小霜怪:抱团分工与强度守恒");
+
+// ── 比血分工 → 相等左者 → 挤靠叠力量 → 守恒预览 → 独活闭合 ──
+{
+    var s = new CombatState(new RngSet("frostling"));
+    var infanta = new Player("Infanta", 80);
+    s.AddPlayer(infanta);
+    var f1 = CombatCmd.SpawnEnemy(s, ModelRegistry.New<Frostling>());   // 左(先入场)
+    var f2 = CombatCmd.SpawnEnemy(s, ModelRegistry.New<Frostling>());   // 右
+    Check(f1.MaxHp >= 20 && f1.MaxHp <= 24 && f2.MaxHp >= 20 && f2.MaxHp <= 24,
+        "两只血量各在 20–24 掷定", $"{f1.MaxHp}/{f2.MaxHp}");
+
+    f1.LoseHpInternal(f1.CurrentHp - 20, ValueProp.None);               // 压到已知值
+    f2.LoseHpInternal(f2.CurrentHp - 15, ValueProp.None);
+    f1.Monster!.RollNextMove(s);
+    f2.Monster!.RollNextMove(s);
+    Check(f1.Monster.NextMove!.Name == "扑打" && f2.Monster.NextMove!.Name == "挤靠",
+        "血多的扑打,血少的挤靠", $"{f1.Monster.NextMove.Name}/{f2.Monster.NextMove.Name}");
+
+    f2.HealInternal(5);                                                 // 20 = 20
+    f1.Monster.RollNextMove(s);
+    f2.Monster.RollNextMove(s);
+    Check(f1.Monster.NextMove!.Name == "扑打" && f2.Monster.NextMove!.Name == "挤靠",
+        "相等时左者扑打(裁定③:左 = 先入场)", $"{f1.Monster.NextMove.Name}/{f2.Monster.NextMove.Name}");
+
+    await f2.Monster.TakeTurn(s);                                       // 挤靠 #1
+    Check(f1.Buffs.Any(b => b is StrengthBuff { Amount: 2 }), "挤靠:队友 +2 力量");
+    await f2.Monster.TakeTurn(s);                                       // 挤靠 #2(同声明重复执行)
+    Check(f1.Buffs.Any(b => b is StrengthBuff { Amount: 4 }), "再挤:叠到 4(Counter 合并)");
+
+    Check(f1.Monster.IntentPreviewDamage(s) == 11,
+        "强度守恒可见:扑打预览 7+4=11——你打进去的伤害变成了对面的力量",
+        $"{f1.Monster.IntentPreviewDamage(s)}");
+
+    await CreatureCmd.Damage(s, infanta.Creature, new[] { f1 }, 999, ValueProp.Move, null);
+    f2.Monster.RollNextMove(s);
+    Check(f2.Monster.NextMove!.Name == "扑打",
+        "死剩一只:它天然是血量较高者,恒扑打——零特例代码");
+}
+
+// ── 【裁定】队友阵亡瞬间改口:挤靠 → 扑打,不等下回合 ──
+{
+    var s = new CombatState(new RngSet("lean-whiff"));
+    var infanta = new Player("Infanta", 80);
+    s.AddPlayer(infanta);
+    var f1 = CombatCmd.SpawnEnemy(s, ModelRegistry.New<Frostling>());
+    var f2 = CombatCmd.SpawnEnemy(s, ModelRegistry.New<Frostling>());
+    f2.LoseHpInternal(f2.CurrentHp - 10, ValueProp.None);
+    f1.Monster!.RollNextMove(s);
+    f2.Monster!.RollNextMove(s);
+    Check(f2.Monster.NextMove!.Name == "挤靠", "f2 声明挤靠");
+
+    await CreatureCmd.Damage(s, infanta.Creature, new[] { f1 }, 999, ValueProp.Move, null);
+    Check(f2.Monster.NextMove!.Name == "扑打" && f2.Monster.IntentPreviewDamage(s) == 7,
+        "队友阵亡瞬间改口:意图当场变扑打(7)");
+    int hp0 = infanta.Creature.CurrentHp;
+    await CombatCmd.EndPlayerTurn(s, infanta);
+    await CombatCmd.EnemyTurn(s);
+    Check(infanta.Creature.CurrentHp == hp0 - 7, "改口兑现:当回合就挨扑打",
+        $"hp {infanta.Creature.CurrentHp}");
+}
+Console.WriteLine();
+Console.WriteLine("[20] 拾柴人与野火灵:分工、换岗与遗产");
+
+// ── 站位涌现:先燎后添,当回合的柴下一回合才烧(整轮集成)──
+{
+    var s = new CombatState(new RngSet("kindling"));
+    var infanta = new Player("Infanta", 80);
+    s.AddPlayer(infanta);
+    var wf = CombatCmd.SpawnEnemy(s, ModelRegistry.New<Wildfire>());    // 左:先动
+    var k  = CombatCmd.SpawnEnemy(s, ModelRegistry.New<Kindler>());     // 右:后动
+    Check(wf.MaxHp >= 12 && wf.MaxHp <= 16 && k.MaxHp >= 30 && k.MaxHp <= 34,
+        "血量各自掷定(12–16 / 30–34)", $"{wf.MaxHp}/{k.MaxHp}");
+
+    await CombatCmd.StartCombat(s, infanta);                            // 空牌库:抽 0
+    Check(wf.Monster!.NextMove!.Name == "燎" && k.Monster!.NextMove!.Name == "添柴",
+        "分工:火恒燎,人恒添柴");
+
+    await CombatCmd.EndPlayerTurn(s, infanta);
+    await CombatCmd.EnemyTurn(s);                                       // 名册序:燎(旧力量 0)→ 添柴 +2
+    Check(infanta.Creature.CurrentHp == 77,
+        "本回合按旧力量烧:只掉 3(站位涌现,当回合的柴烧不着)", $"hp {infanta.Creature.CurrentHp}");
+    Check(wf.Buffs.Any(b => b is StrengthBuff { Amount: 4 }), "柴已添:野火灵 +4 力量");
+
+    await CombatCmd.StartPlayerTurn(s, infanta);                        // R2
+    Check(wf.Monster.IntentPreviewDamage(s) == 7, "下一回合柴才烧:燎预览 3+4=7",
+        $"{wf.Monster.IntentPreviewDamage(s)}");
+}
+
+// ── 【裁定】火灭瞬间改口:不等下回合 ──
+{
+    var s = new CombatState(new RngSet("douse"));
+    var infanta = new Player("Infanta", 80);
+    s.AddPlayer(infanta);
+    var wf = CombatCmd.SpawnEnemy(s, ModelRegistry.New<Wildfire>());
+    var k  = CombatCmd.SpawnEnemy(s, ModelRegistry.New<Kindler>());
+    await CombatCmd.StartCombat(s, infanta);                            // k 已声明添柴
+
+    await CreatureCmd.Damage(s, infanta.Creature, new[] { wf }, 999, ValueProp.Move, null);
+    Check(k.Monster!.NextMove!.Name == "挥柴" && k.Monster.IntentPreviewDamage(s) == 13,
+        "火灭瞬间改口:意图当场变挥柴(13)");
+    int hp0 = infanta.Creature.CurrentHp;
+    await CombatCmd.EndPlayerTurn(s, infanta);
+    await CombatCmd.EnemyTurn(s);
+    Check(infanta.Creature.CurrentHp == hp0 - 13, "改口兑现:当回合就挨挥柴",
+        $"hp {infanta.Creature.CurrentHp}");
+}
+
+// ── 力量遗产:杀拾柴人止得住变旺,止不了血 ──
+{
+    var s = new CombatState(new RngSet("legacy"));
+    var infanta = new Player("Infanta", 80);
+    s.AddPlayer(infanta);
+    var wf = CombatCmd.SpawnEnemy(s, ModelRegistry.New<Wildfire>());
+    var k  = CombatCmd.SpawnEnemy(s, ModelRegistry.New<Kindler>());
+    await CombatCmd.StartCombat(s, infanta);
+    await BuffCmd.Apply<StrengthBuff>(s, wf, 4, null);                  // 模拟已喂两轮
+
+    await CreatureCmd.Damage(s, infanta.Creature, new[] { k }, 999, ValueProp.Move, null);
+    Check(wf.Buffs.Any(b => b is StrengthBuff { Amount: 4 }), "拾柴人死,力量不散——它是野火灵自己的");
+    Check(wf.Monster!.IntentPreviewDamage(s) == 7, "燎预览仍 3+4=7:止得住变旺,止不了血",
+        $"{wf.Monster.IntentPreviewDamage(s)}");
+}
 Console.WriteLine(failures == 0 ? "全部通过 ✔" : $"{failures} 条断言失败 ✘");
 return failures == 0 ? 0 : 1;
 

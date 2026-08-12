@@ -8,7 +8,6 @@ namespace Kernel;
 /// <summary>回合循环动词层。流程 = 对照表钉死的 v2，每步注明 STS2 出处。</summary>
 public static class CombatCmd
 {
-    public const int BaseHandDraw = 5;
 
     /// <summary>开战：牌库逐张克隆入抽牌堆（STS2 PopulateCombatState 同构；
     /// DeckVersion 回链挂账）→ 洗牌 → 第一个玩家回合。</summary>
@@ -63,8 +62,12 @@ public static class CombatCmd
         // ③ 能量（ShouldPlayerResetEnergy/冰淇淋类挂账）
         pcs.ResetEnergy();
 
+        // ③′ 回合开始分发（STS2 AfterSideTurnStart 位：能量已重置、还没抽牌——赤金王印的家）
+        await Hook.AfterTurnStarted(state, CombatSide.Player);
+        if (CheckEnd(state)) return;
+
         // ④ 抽牌：基数 → hook → 首回合本能置顶 + 抽数保底（STS2 SetupPlayerTurn 原样）
-        int n = Hook.ModifyHandDraw(state, player, BaseHandDraw, out _);
+        int n = Hook.ModifyHandDraw(state, player, player.BaseHandDraw, out _);
         if (state.RoundNumber == 1)
         {
             List<CardModel> innate = pcs.DrawPile.Cards
@@ -111,6 +114,7 @@ public static class CombatCmd
 
         // ③
         await Hook.AfterTurnEnd(state, CombatSide.Player);
+        if (CheckEnd(state)) return;
         state.Events.Emit(new TurnEnded { Round = state.RoundNumber, Side = CombatSide.Player });
         state.CurrentSide = CombatSide.Enemy;
     }
@@ -122,6 +126,8 @@ public static class CombatCmd
         state.Events.Emit(new TurnStarted { Round = state.RoundNumber, Side = CombatSide.Enemy });
 
         ClearSideBlock(state, CombatSide.Enemy);   // 敌方回合开始清自己的盾（side!=Player 恒清）
+        await Hook.AfterTurnStarted(state, CombatSide.Enemy);   // 对称分发（同 STS2 双侧都发；敌侧首个雇主待来）
+        if (CheckEnd(state)) return;
 
         foreach (Creature enemy in state.Enemies.ToList())          // 快照：行动中可能死人
         {
@@ -132,10 +138,25 @@ public static class CombatCmd
         }
 
         await Hook.AfterTurnEnd(state, CombatSide.Enemy);           // ← 灼伤③④、弱化 tick
+        if (CheckEnd(state)) return;
         state.Events.Emit(new TurnEnded { Round = state.RoundNumber, Side = CombatSide.Enemy });
 
         state.RoundNumber++;                                        // STS2：敌→玩切换处 round++
         state.CurrentSide = CombatSide.Player;
+    }
+    
+    /// <summary>能量动词壳（对应 STS2 PlayerCmd.GainEnergy）：裸状态在 PCS，事件发在这。</summary>
+    public static async Task GainEnergy(CombatState state, Player player, int amount)
+    {
+        if (amount <= 0) return;
+        player.PlayerCombatState!.GainEnergy(amount);
+        state.Events.Emit(new EnergyGained
+        {
+            Round = state.RoundNumber, Side = state.CurrentSide,
+            Player = player, Amount = amount,
+        });
+        Fx.Vfx("energy_gain", player.Creature);
+        await Fx.CustomScaledWait(0.05f, 0.1f);
     }
 
     /// <summary>胜负判定：敌全灭→胜；玩家死→负。只发一次 CombatEnded。</summary>

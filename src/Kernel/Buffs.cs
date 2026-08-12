@@ -8,6 +8,7 @@ public sealed class StrengthBuff : BuffModel
 {
     public override BuffPolarity Polarity => BuffPolarity.Positive;
     public override bool AllowNegative => true;
+    public override string Describe() => $"力量 {Amount}";
 
     public override decimal ModifyDamageAdditive(Creature? target, decimal amount, ValueProp props, Creature? dealer, CardModel? cardSource)
     {
@@ -98,4 +99,30 @@ public sealed class GuardianBuff : BuffModel
         if (!props.IsPoweredAttack()) return target;
         return Owner;
     }
+}
+
+/// <summary>消融:获得的【卡牌来源】护盾 ×0.75。裁定:一切判定同 Frail——
+/// 只减卡牌盾(cardSource == null 的怪物盾/被动盾不受影响),向下取整由
+/// Hook.ModifyBlock 出口的全局唯一取整点承担,这里不取整。
+/// Duration 型:敌方回合末 -1(虚弱同款节奏),归零整条消失。</summary>
+public sealed class AblationBuff : BuffModel
+{
+    public override BuffPolarity Polarity => BuffPolarity.Negative;
+    public override BuffStackType StackType => BuffStackType.Duration;
+
+    public override decimal ModifyBlockMultiplicative(Creature target, decimal amount, ValueProp props, CardModel? cardSource)
+    {
+        if (target != Owner) return 1m;
+        if (cardSource == null) return 1m;
+        return 0.75m;
+    }
+
+    public override async Task AfterTurnEnd(CombatSide side)
+    {
+        if (side != CombatSide.Enemy) return;
+        if (Owner?.CombatState is not { } state) return;
+        await BuffCmd.ChangeAmount(state, this, -1, null);
+    }
+
+    public override string Describe() => $"消融 {Amount}";
 }

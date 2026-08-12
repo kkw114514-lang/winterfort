@@ -15,9 +15,10 @@ namespace Kernel;
 ///
 /// 它【不是】GameModel——运行时实体没有 canonical 形态。
 ///
-/// 【偏离 STS2 #3 的体现】STS2 在 Block/CurrentHp 的 setter 里挂 C# 事件给 UI；
-/// 我们不挂，表现层统一从事件流拿通知。代价是一条纪律：所有游戏性改动必须
-/// 走 Cmd 层（Cmd 发事件）；绕过 Cmd 直捅 Internal 的改动，表现层看不见。
+/// 【偏离 #3 已逆转，回归 STS2】Block/CurrentHp 等 setter 挂属性级 C# 事件（门铃）
+/// 供表现层数值绑定；事件流职责收窄为：日志/确定性测试/语义时刻（抽牌≠检索）。
+/// 【两层可见性不同步】绕过 Cmd 的裸改会响铃（UI 看得见）但不发流事件（日志看不见）——
+/// 游戏性改动必须走 Cmd 的纪律不变。
 /// </summary>
 public sealed class Creature
 {
@@ -36,7 +37,10 @@ public sealed class Creature
         private set
         {
             if (value < 0) throw new ArgumentException("护盾不能为负", nameof(value));
+            if (_block == value) return;               // 等值不响（STS2 守卫原样）
+            int old = _block;
             _block = value;
+            BlockChanged?.Invoke(old, _block);
         }
     }
 
@@ -46,7 +50,10 @@ public sealed class Creature
         private set
         {
             if (value < 0) throw new ArgumentException("血量不能为负", nameof(value));
+            if (_currentHp == value) return;
+            int old = _currentHp;
             _currentHp = value;
+            CurrentHpChanged?.Invoke(old, _currentHp);
         }
     }
 
@@ -56,7 +63,10 @@ public sealed class Creature
         private set
         {
             if (value < 0) throw new ArgumentException("血量上限不能为负", nameof(value));
+            if (_maxHp == value) return;
+            int old = _maxHp;
             _maxHp = value;
+            MaxHpChanged?.Invoke(old, _maxHp);
         }
     }
 
@@ -96,6 +106,17 @@ public sealed class Creature
 
     public IReadOnlyList<BuffModel> Buffs => _buffs;
 
+    // ── 属性级门铃（签名与 STS2 Creature.cs 逐一对齐）──
+    // 订阅纪律：表现层订阅者只读、不许改状态；成对退订（进树 += / 出树 -=）；
+    // 处理器不依赖铃的先后顺序（每声独立回读）。异常由动作级围栏（TaskHelper）接。
+    public event Action<int, int>? BlockChanged;        // (old, new)
+    public event Action<int, int>? CurrentHpChanged;    // (old, new)
+    public event Action<int, int>? MaxHpChanged;        // (old, new)
+    public event Action<BuffModel>? BuffApplied;
+    public event Action<BuffModel, int, bool>? BuffIncreased;   // (buff, 增量, silent)——silent 雇主后到，恒 false
+    public event Action<BuffModel, bool>? BuffDecreased;        // (buff, silent)——STS2 原样：减不带量，订阅者回读
+    public event Action<BuffModel>? BuffRemoved;
+    
     public string Name => Player?.Name ?? Monster?.Id.Entry ?? "???";
     public override string ToString() => Name;
 
@@ -211,12 +232,23 @@ public sealed class Creature
         if (_buffs.Contains(buff))
             throw new InvalidOperationException($"{Name} 身上已经有这个 {buff.Id} 实例了。");
         _buffs.Add(buff);
+        BuffApplied?.Invoke(buff);                     // 入名单后响（STS2 :504 原样）
     }
 
     internal void RemoveBuffInternal(BuffModel buff)
     {
         if (!_buffs.Remove(buff))
             throw new InvalidOperationException($"{Name} 身上没有这个 {buff.Id} 实例。");
+        BuffRemoved?.Invoke(buff);
+    }
+
+    /// <summary>层数变动拉铃口（STS2 :511/:519 同构：增减分铃、减不带量）。
+    /// 铃在 Creature 身上、不在 BuffModel 上——绕开"克隆连名单一起复制"的软肋（STS2 同款布局）。
+    /// 只由 BuffModel.ChangeAmountInternal 反向调用。</summary>
+    internal void RaiseBuffAmountChangedInternal(BuffModel buff, int delta)
+    {
+        if (delta > 0) BuffIncreased?.Invoke(buff, delta, false);
+        else if (delta < 0) BuffDecreased?.Invoke(buff, false);
     }
 
     // ── buff 查询 ──

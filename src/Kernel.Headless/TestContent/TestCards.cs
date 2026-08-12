@@ -82,7 +82,7 @@ public sealed class TestMultiUpgrade : CardModel
 public sealed class TestUnplayableCurse : CardModel
 {
     public TestUnplayableCurse()
-        : base(0, CardType.Bane, CardRarity.Special, CardElement.Dark, TargetType.None) { }
+        : base(0, CardType.Bane, CardRarity.Bane, CardElement.Dark, TargetType.None) { }
 
     protected override string TitleText => "枷锁";
     protected override string DescriptionTemplate => "无法打出。";

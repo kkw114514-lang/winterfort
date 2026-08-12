@@ -38,13 +38,32 @@ public sealed class PlayerCombatState
 
     public IReadOnlyList<Creature> Pets => _pets;
 
+    // ── 出牌史书（规则查询走这里，事件流保持纯表现——同 STS2 History 与事件分离）──
+
+    private readonly List<PlayRecord> _playHistory = new();
+
+    /// <summary>本场战斗的出牌史。条目在打出【开始】时记账（CardCmd.Play），
+    /// 所以正在结算的牌就是最后一条——读者查"上一张"用倒数第二条。
+    /// 【按位置排除、不按对象比对】同一张牌被捞回重打时对象会重复出现，
+    /// 按对象排除会误伤合法条目。</summary>
+    public IReadOnlyList<PlayRecord> PlayHistory => _playHistory;
+
+    internal void RecordPlayInternal(CardModel card, int round)
+        => _playHistory.Add(new PlayRecord(card, round));
+    
+    /// <summary>能量门铃（STS2 PCS:90 逐字对齐）。</summary>
+    public event Action<int, int>? EnergyChanged;
+    
     public int Energy
     {
         get => _energy;
         private set
         {
             if (value < 0) throw new ArgumentException("能量不能为负", nameof(value));
+            if (_energy == value) return;
+            int old = _energy;
             _energy = value;
+            EnergyChanged?.Invoke(old, _energy);
         }
     }
 
@@ -93,3 +112,6 @@ public sealed class PlayerCombatState
         _pets.Add(pet);
     }
 }
+/// <summary>史书条目。窗口（本回合/本场战斗）是【查询条件】不是存储属性——
+/// 跟进查本回合、腰带抽打查全场，同一本史书换个过滤而已。Round 供读者自滤。</summary>
+public readonly record struct PlayRecord(CardModel Card, int Round);

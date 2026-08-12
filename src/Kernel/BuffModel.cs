@@ -50,6 +50,7 @@ public abstract class BuffModel : GameModel
         if (Owner == null)
             throw new InvalidOperationException($"{Id} 还没挂到任何生物身上。");
         Amount += delta;
+        Owner.RaiseBuffAmountChangedInternal(this, delta);
     }
 
     public void RemoveInternal()

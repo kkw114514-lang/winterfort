@@ -10,12 +10,21 @@ config_version=5
 
 [application]
 
-config/name="rouge-2.0"
-config/features=PackedStringArray("4.7", "C#", "GL Compatibility")
+config/name="WinterKnell"
+run/main_scene="res://scenes/debug/manual_battle.tscn"
+config/use_custom_user_dir=true
+config/custom_user_dir_name="WinterKnell"
+config/features=PackedStringArray("4.7", "C#", "Mobile")
+run/flush_stdout_on_print=true
+boot_splash/bg_color=Color(0, 0, 0, 1)
+boot_splash/show_image=false
 config/icon="res://icon.svg"
 
 [display]
 
+window/size/viewport_width=1920
+window/size/viewport_height=1080
+window/size/initial_position_type=3
 window/stretch/mode="canvas_items"
 window/stretch/aspect="expand"
 
@@ -23,12 +32,23 @@ window/stretch/aspect="expand"
 
 project/assembly_name="rouge-2.0"
 
+[gui]
+
+common/snap_controls_to_pixels=false
+fonts/dynamic_fonts/use_oversampling=false
+
+[internationalization]
+
+locale/include_text_server_data=true
+
 [physics]
 
-3d/physics_engine="Jolt Physics"
+2d/physics_engine="Dummy"
+3d/physics_engine="Dummy"
 
 [rendering]
 
 rendering_device/driver.windows="d3d12"
-renderer/rendering_method="gl_compatibility"
-renderer/rendering_method.mobile="gl_compatibility"
+renderer/rendering_method="mobile"
+textures/vram_compression/import_etc2_astc=true
+environment/defaults/default_clear_color=Color(0.0923724, 0.122398, 0.116929, 1)

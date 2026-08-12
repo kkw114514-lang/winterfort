@@ -9,14 +9,56 @@ public enum CardType
     Aura,       // 永续 —— 打出后离场，本场不再出现，战斗结束回牌库
     Bane,      // 灾厄 —— 永久留在卡组
     Dross,     // 干扰 —— 战斗结束消失
+    Quest,      // 任务 —— 任务发放的携带物；转化/复制类效果须排除它（同 STS2，做那类效果时落实）
 }
 
+/// <summary>
+/// 稀有度 = 获取渠道 + 掉落权重，不是强度标签（同 STS2 的用法）。
+/// 十二档里只有 Common/Uncommon/Rare 带权重——将来 run 层的加权 roll
+/// 只会掷出这三档；其余全是"定向发放"的渠道标签，roll 永远掷不出。
+///
+/// 【顺序有意义】权重梯子固定在前，特殊档在后。以后加档只许追加到末尾、
+/// 不许往中间插——一旦有代码按序号做区间判断（STS2 反编译里真的有），
+/// 中间插档就是隐雷。
+/// </summary>
 public enum CardRarity
 {
+    /// <summary>算法哨兵，不是任何卡的稀有度——构造时禁止（见 CardModel 构造断言）。
+    /// 留给将来"沿梯子向上找"类算法当终点信号（同 STS2 GetNextHighestRarity）。</summary>
+    None,
+
+    /// <summary>初始卡。不进商店、不进掉落、不进战斗内生成（同 STS2 Basic）。
+    /// 惯例：Element 为 Basic（通用基石）的卡必须标这一档。</summary>
+    Basic,
+
+    // ── 权重梯子：掉落/商店/奖励的加权 roll 只掷这三档 ──
     Common,     // 白
     Uncommon,   // 蓝
     Rare,       // 金
-    Special,    // 红 —— 仅特殊场景，不进常规掉落
+
+    // ── 渠道标签：roll 掷不出，全部定向发放 ──
+
+    /// <summary>契约师卡（对应 STS2 Ancient）。一切常规渠道全排除，特殊途径获得。</summary>
+    Pactbearer,
+
+    /// <summary>精灵（眷属）专属卡。随精灵进牌组；精灵被移除时这些卡一并移除
+    ///（联动在 run 层实现，靠这一档识别该移除哪些卡）。</summary>
+    Familiar,
+
+    /// <summary>事件卡：只从事件获得。</summary>
+    Event,
+
+    /// <summary>战斗中生成的卡（非精灵来源）。</summary>
+    Token,
+
+    /// <summary>干扰卡的档位，与 CardType.Dross 同词——战斗中被塞进牌组。</summary>
+    Dross,
+
+    /// <summary>灾厄卡的档位，与 CardType.Bane 同词——事件/惩罚塞入。</summary>
+    Bane,
+
+    /// <summary>任务卡：任务发放。</summary>
+    Quest,
 }
 
 /// <summary>
@@ -27,7 +69,7 @@ public enum CardRarity
 public enum CardElement
 {
     None  = 0,        // flags 卫生位。构造时禁止（见 CardModel 构造断言）
-    Basic = 1 << 0,   // B 通用基石——不进掉落池，只作起始卡组素材。与其他系互斥
+    Basic = 1 << 0,   // B 通用基石——与其他系互斥（不参与双系）。掉落排除已由 CardRarity.Basic 承担
     Fire  = 1 << 1,   // F 火
     Water = 1 << 2,   // W 水
     Grass = 1 << 3,   // G 草

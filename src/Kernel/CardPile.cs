@@ -45,6 +45,11 @@ public sealed class CardPile
     public IReadOnlyList<CardModel> Cards => _cards;
     public int Count => _cards.Count;
     public bool IsEmpty => _cards.Count == 0;
+    
+    //// <summary>粗粒度门铃：集合【成员】变化时响（加/移）；顺序变动不响——STS2 原样：
+    /// 牌堆顺序是隐藏信息，响了也不该被看见（查看界面按自己的规则重排显示）。
+    /// 逐张铃（CardAdded/Removed）、批次铃、silent 参数等雇主。</summary>
+    public event Action? ContentsChanged;
 
     // ══ Internal 层：只改状态，不跑 hook，不发事件 ══
 
@@ -63,6 +68,7 @@ public sealed class CardPile
         if (index >= 0) _cards.Insert(index, card);
         else _cards.Add(card);
         card.SetPile(this);
+        ContentsChanged?.Invoke();
     }
 
     public void RemoveInternal(CardModel card)
@@ -70,6 +76,7 @@ public sealed class CardPile
         if (card.Pile != this || !_cards.Remove(card))
             throw new InvalidOperationException($"{Type} 堆里没有这张 {card.Id}。");
         card.SetPile(null);
+        ContentsChanged?.Invoke();
         // 移动 = Remove + Add，两步之间 Pile 短暂为 null——这发生在单个 Cmd 内部，
         // 没有观测点，不算破坏铁律。
     }

@@ -40,3 +40,10 @@ public sealed class CombatEnded : CombatEvent
     public bool Victory { get; init; }
     public override string Description => Victory ? "战斗胜利" : "战斗失败";
 }
+
+public sealed class EnergyGained : CombatEvent
+{
+    public required Player Player { get; init; }
+    public int Amount { get; init; }
+    public override string Description => $"{Player.Name} 获得 {Amount} 点能量";
+}

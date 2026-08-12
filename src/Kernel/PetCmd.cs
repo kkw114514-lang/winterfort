@@ -46,7 +46,7 @@ public static class PetCmd
         }
 
         Fx.Sfx("pet_summon");
-        await Fx.Wait(0.2f);
+        await Fx.CustomScaledWait(0.1f, 0.2f);
 
         state.Events.Emit(new PetSummoned
         {
