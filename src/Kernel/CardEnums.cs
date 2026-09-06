@@ -95,10 +95,14 @@ public enum CardKeyword
 /// <summary>
 /// 卡牌族标记：【引擎不读它，只有内容读】——让别的卡/遗物能识别"某一族卡"。
 /// 例："每有一张基石卡 +2 伤害"。
-/// 现在是空的，等出现第一个这种需求再往里加。
+/// 第一批住户（微裁定6）：油脂弹按 Immolate 识别"下一张焚毁卡"，
+/// 薪火长明/油库引爆按 Fuel 识别"燃料卡"。行为本体仍是 virtual（OnFuel/选择器调用），
+/// Tag 只回答"这张卡属不属于这一族"。
 /// </summary>
 public enum CardTag
 {
+    Fuel,       // 燃料：卡面带「燃料：」冒号效果
+    Immolate,   // 焚毁：卡面带「焚毁 N」
 }
 
 public enum TargetType

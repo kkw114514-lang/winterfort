@@ -1,0 +1,190 @@
+[gd_scene format=3 uid="uid://mqu847entj20"]
+
+[ext_resource type="Texture2D" uid="uid://c3o2gllq8h5of" path="res://ui/skin/energy_orb_2.png" id="1_zghpd"]
+[ext_resource type="Texture2D" uid="uid://bfpsms7i6mkoi" path="res://ui/skin/background_4.png" id="2_p1jtd"]
+[ext_resource type="Texture2D" uid="uid://dir34viaqsdjo" path="res://ui/skin/exhaust_pile_icon.png" id="3_b9a2x"]
+[ext_resource type="Texture2D" uid="uid://bomroxykpve2u" path="res://ui/skin/end_turn_button.png" id="4_7xnma"]
+[ext_resource type="Texture2D" uid="uid://dl3v7mumeo8e6" path="res://ui/skin/discard_pile_icon.png" id="5_n3dr6"]
+[ext_resource type="Texture2D" uid="uid://b05bfpb4gmujn" path="res://ui/skin/draw_pile_icon.png" id="6_b8b6f"]
+
+[node name="Gemini_Generated_Image_r8e3swr8e3swr8e3_layer_3" type="Control" unique_id=276114125]
+clip_contents = true
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+scale = Vector2(0.467836, 0.46875)
+
+[node name="background" type="TextureRect" parent="." unique_id=1352096301]
+layout_mode = 0
+offset_right = 2736.0
+offset_bottom = 1536.0
+texture = ExtResource("2_p1jtd")
+expand_mode = 1
+stretch_mode = 5
+
+[node name="end_turn_button" type="TextureRect" parent="." unique_id=975409494]
+layout_mode = 0
+offset_left = 2131.1768
+offset_top = 1216.7988
+offset_right = 2643.1768
+offset_bottom = 1408.7988
+scale = Vector2(0.6, 0.6)
+texture = ExtResource("4_7xnma")
+stretch_mode = 5
+
+[node name="discard_pile_icon" type="TextureRect" parent="." unique_id=138010731]
+layout_mode = 0
+offset_left = 2480.6714
+offset_top = 1307.2239
+offset_right = 2721.6714
+offset_bottom = 1466.2239
+texture = ExtResource("5_n3dr6")
+expand_mode = 1
+stretch_mode = 5
+
+[node name="exhaust_pile_icon" type="TextureRect" parent="." unique_id=320615463]
+layout_mode = 0
+offset_left = 2596.2725
+offset_top = 1097.2156
+offset_right = 2729.2725
+offset_bottom = 1245.2156
+scale = Vector2(0.8, 0.8)
+texture = ExtResource("3_b9a2x")
+expand_mode = 1
+stretch_mode = 5
+
+[node name="end_turn_text" type="Label" parent="." unique_id=892134717]
+layout_mode = 0
+offset_left = 2260.7063
+offset_top = 1325.0935
+offset_right = 2460.7063
+offset_bottom = 1374.0935
+theme_override_colors/font_color = Color(0.102, 0.102, 0.102, 1)
+theme_override_font_sizes/font_size = 34
+text = "回合结束
+"
+horizontal_alignment = 1
+
+[node name="discard_pile_count" type="Label" parent="." unique_id=816650813]
+layout_mode = 0
+offset_left = 2590.65
+offset_top = 1357.0991
+offset_right = 2657.432
+offset_bottom = 1408.0991
+theme_override_colors/font_color = Color(1, 1, 1, 1)
+theme_override_colors/font_outline_color = Color(0, 0, 0, 1)
+theme_override_constants/outline_size = 3
+theme_override_font_sizes/font_size = 37
+text = "9"
+horizontal_alignment = 1
+
+[node name="discard_pile_label" type="Label" parent="." unique_id=1341581396]
+layout_mode = 0
+offset_left = 2556.6064
+offset_top = 1429.6531
+offset_right = 2639.6064
+offset_bottom = 1464.6531
+theme_override_colors/font_color = Color(0.827, 0.773, 0.71, 1)
+theme_override_font_sizes/font_size = 24
+text = "弃牌堆"
+horizontal_alignment = 1
+
+[node name="exhaust_pile_label" type="Label" parent="." unique_id=1559634860]
+layout_mode = 0
+offset_left = 2561.498
+offset_top = 1260.0713
+offset_right = 2631.498
+offset_bottom = 1294.0713
+theme_override_colors/font_color = Color(0.827, 0.773, 0.71, 1)
+theme_override_font_sizes/font_size = 23
+text = "消耗堆"
+horizontal_alignment = 1
+
+[node name="exhaust_pile_count" type="Label" parent="." unique_id=107423360]
+layout_mode = 0
+offset_left = 2578.314
+offset_top = 1193.9482
+offset_right = 2628.314
+offset_bottom = 1240.9482
+theme_override_colors/font_color = Color(1, 1, 1, 1)
+theme_override_colors/font_shadow_color = Color(0, 0, 0, 1)
+theme_override_constants/shadow_offset_x = 1
+theme_override_constants/shadow_offset_y = 1
+theme_override_constants/shadow_outline_size = 2
+theme_override_font_sizes/font_size = 34
+text = "0"
+horizontal_alignment = 1
+
+[node name="energy_orb" type="TextureRect" parent="." unique_id=1899428852]
+layout_mode = 0
+offset_left = 118.23712
+offset_top = 1086.4668
+offset_right = 372.2372
+offset_bottom = 1373.4668
+scale = Vector2(0.8, 0.8)
+texture = ExtResource("1_zghpd")
+expand_mode = 1
+stretch_mode = 5
+
+[node name="draw_pile_icon" type="TextureRect" parent="." unique_id=78792127]
+layout_mode = 0
+offset_left = -4.647477
+offset_top = 1306.7612
+offset_right = 253.35252
+offset_bottom = 1464.7612
+texture = ExtResource("6_b8b6f")
+expand_mode = 1
+stretch_mode = 5
+
+[node name="energy_count" type="Label" parent="." unique_id=139769171]
+layout_mode = 0
+offset_left = 176.62567
+offset_top = 1172.0737
+offset_right = 270.62567
+offset_bottom = 1254.0737
+theme_override_colors/font_color = Color(1, 1, 1, 1)
+theme_override_colors/font_shadow_color = Color(0, 0, 0, 1)
+theme_override_constants/shadow_offset_x = 1
+theme_override_constants/shadow_offset_y = 1
+theme_override_constants/shadow_outline_size = 2
+theme_override_font_sizes/font_size = 59
+text = "4/4"
+horizontal_alignment = 1
+
+[node name="draw_pile_label" type="Label" parent="." unique_id=271737034]
+layout_mode = 0
+offset_left = 74.730255
+offset_top = 1428.9551
+offset_right = 168.73026
+offset_bottom = 1468.9551
+theme_override_colors/font_color = Color(0.827, 0.773, 0.71, 1)
+theme_override_font_sizes/font_size = 28
+text = "抽牌堆"
+horizontal_alignment = 1
+
+[node name="draw_pile_count" type="Label" parent="." unique_id=1417768555]
+layout_mode = 0
+offset_left = 99.54431
+offset_top = 1357.8997
+offset_right = 171.54431
+offset_bottom = 1414.8997
+theme_override_colors/font_color = Color(1, 1, 1, 1)
+theme_override_colors/font_outline_color = Color(0, 0, 0, 1)
+theme_override_constants/outline_size = 3
+theme_override_font_sizes/font_size = 41
+text = "9"
+horizontal_alignment = 1
+
+[node name="energy_label" type="Label" parent="." unique_id=1762992446]
+layout_mode = 0
+offset_left = 162.44362
+offset_top = 1326.6327
+offset_right = 234.44362
+offset_bottom = 1357.6327
+theme_override_colors/font_color = Color(0.827, 0.773, 0.71, 1)
+theme_override_font_sizes/font_size = 22
+text = "能量"
+horizontal_alignment = 1

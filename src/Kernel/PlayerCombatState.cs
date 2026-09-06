@@ -14,9 +14,6 @@ public sealed class PlayerCombatState
     private CardPile[]? _allPiles;
     private int _energy;
     
-    /// <summary>虚无的边沿触发标志：上个检查点末尾手牌非空 = 已武装。
-    /// 防止空手状态下的连锁自动打出反复触发（水密规则第②条）。</summary>
-    internal bool NihilityArmed = true;
 
     public CardPile Hand        { get; } = new(PileType.Hand);
     public CardPile DrawPile    { get; } = new(PileType.Draw);
@@ -42,8 +39,9 @@ public sealed class PlayerCombatState
 
     private readonly List<PlayRecord> _playHistory = new();
 
-    /// <summary>本场战斗的出牌史。条目在打出【开始】时记账（CardCmd.Play），
-    /// 所以正在结算的牌就是最后一条——读者查"上一张"用倒数第二条。
+    /// <summary>本场战斗的出牌史。条目在【每轮结算开始】时记账（CardCmd.Play 循环内,
+    /// 重放的牌一轮一条——同 STS2 双份账),正在结算的一轮就是最后一条——
+    /// 读者查"上一张"用倒数第二条;重放第二轮的"上一张"= 它自己的第一轮,判例如此。
     /// 【按位置排除、不按对象比对】同一张牌被捞回重打时对象会重复出现，
     /// 按对象排除会误伤合法条目。</summary>
     public IReadOnlyList<PlayRecord> PlayHistory => _playHistory;

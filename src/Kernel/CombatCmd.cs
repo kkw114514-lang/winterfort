@@ -115,6 +115,10 @@ public static class CombatCmd
         // ③
         await Hook.AfterTurnEnd(state, CombatSide.Player);
         if (CheckEnd(state)) return;
+
+        // ④ 「本回合」费用修正条过期（STS2 EndOfTurnCleanup；狂战的落日）
+        foreach (CardModel card in pcs.AllCards)
+            card.EndOfTurnCostCleanup();
         state.Events.Emit(new TurnEnded { Round = state.RoundNumber, Side = CombatSide.Player });
         state.CurrentSide = CombatSide.Enemy;
     }

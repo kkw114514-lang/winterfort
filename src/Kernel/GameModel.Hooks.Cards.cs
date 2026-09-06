@@ -17,10 +17,11 @@ public abstract partial class GameModel
     /// <summary>一张牌打出流程完毕之后。</summary>
     public virtual Task AfterCardPlayed(CardModel card, Creature? target) => Task.CompletedTask;
 
+    /// <summary>【裁定13】出牌起点广播:扣费入 Play 堆之后、每轮 OnPlay 之前(逐次)。
+    /// 打出型触发在这记名,AfterCardPlayed 摘名结算——起点不在场的听不到,天然不自触发。</summary>
+    public virtual Task BeforeCardPlayed(CardModel card, Creature? target) => Task.CompletedTask;
+
     /// <summary>战斗内生成一张牌之后（STS2: AfterCardGeneratedForCombat；
     /// 跑图层的"获得卡牌"是另一个语义，将来叫 AfterCardAcquired）。</summary>
     public virtual Task AfterCardGenerated(CardModel card) => Task.CompletedTask;
-
-    /// <summary>虚无触发之后（某玩家手牌变空）。消耗堆里"下次触发虚无后…"类卡听这个。</summary>
-    public virtual Task AfterNihilityTriggered(Player player) => Task.CompletedTask;
 }

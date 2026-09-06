@@ -1,0 +1,31 @@
+[gd_scene format=3 uid="uid://byc4tj03x3oin"]
+
+[ext_resource type="Script" uid="uid://prb28r141bhv" path="res://npc.gd" id="1_0xm2m"]
+[ext_resource type="Texture2D" uid="uid://8q7smop34iw4" path="res://icon.svg" id="1_ig7tw"]
+[ext_resource type="Script" uid="uid://xfc46cutx2dg" path="res://player.gd" id="3_h2yge"]
+
+[node name="main" type="Node2D" unique_id=360499565]
+
+[node name="npc" type="CharacterBody2D" parent="." unique_id=2084153130]
+position = Vector2(300, 200)
+script = ExtResource("1_0xm2m")
+
+[node name="Sprite2D" type="Sprite2D" parent="npc" unique_id=187527942]
+scale = Vector2(0.3, 0.3)
+texture = ExtResource("1_ig7tw")
+
+[node name="StateLabel" type="Label" parent="npc" unique_id=154299559]
+offset_left = -35.0
+offset_top = -70.0
+offset_right = 26.0
+offset_bottom = -47.0
+text = "PATROL"
+
+[node name="Player" type="CharacterBody2D" parent="." unique_id=1485563101]
+position = Vector2(700, 400)
+script = ExtResource("3_h2yge")
+
+[node name="Sprite2D" type="Sprite2D" parent="Player" unique_id=1378798261]
+modulate = Color(0, 1, 0, 1)
+scale = Vector2(0.2, 0.2)
+texture = ExtResource("1_ig7tw")

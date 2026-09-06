@@ -20,56 +20,85 @@ public static class CardCmd
         // ── 校验 ──
         if (isAutoPlay)
         {
-            if (card.HasKeyword(CardKeyword.Unplayable)) return false;   // 自动打出免资源检查，但无法打出仍是无法打出
+            if (card.HasKeyword(CardKeyword.Unplayable))
+            {
+                await MoveToDestinationWithoutPlaying(state, card);   // 裁定14:不结算也要归位(同 STS2)
+                return false;
+            }
         }
         else
         {
-            if (card.Pile?.Type != PileType.Hand) return false;          // 主动打出只能从手牌
+            if (card.Pile?.Type != PileType.Hand) return false;      // 主动打出只能从手牌
             if (!card.CanPlay(out _, out _)) return false;
         }
         if (card.TargetType == TargetType.SingleEnemy)
         {
             if (target == null)
-                throw new InvalidOperationException(
-                    isAutoPlay ? "自动打出指向性卡的目标选择策略：等第一张这种内容出现时再定。"
-                               : $"{card.Id} 需要目标。");
+            {
+                if (!isAutoPlay)
+                    throw new InvalidOperationException($"{card.Id} 需要目标。");
+                // 【裁定14】自动打出的指向卡:CombatTargets 流随机活敌;全场无活敌 → 落空直送去向堆。
+                List<Creature> living = state.Enemies.Where(e => e.IsAlive).ToList();
+                if (living.Count == 0)
+                {
+                    await MoveToDestinationWithoutPlaying(state, card);
+                    return false;
+                }
+                target = living[state.RngSet[RngStream.CombatTargets].NextInt(living.Count)];
+            }
             if (target.IsDead) return false;
         }
 
-        // ── 扣费（自动打出免费——遗言语义）──
+        // ── 扣费（自动打出免费——遗言语义；重放不重复扣费,费只在这一处扣一次）──
         if (!isAutoPlay) pcs.LoseEnergy(card.Cost);
 
         // ── 入 Play 堆（物理隔离位）──
         card.Pile?.RemoveInternal(card);
         pcs.PlayPile.AddInternal(card);
-        pcs.RecordPlayInternal(card, state.RoundNumber);   // 史书记账：与 CardPlayStarted 同刻（跟进同款——记在开始，读者排除自己）
-        state.Events.Emit(new CardPlayStarted
-        {
-            Round = state.RoundNumber, Side = state.CurrentSide,
-            Card = card, Target = target, IsAutoPlay = isAutoPlay,
-        });
         Fx.Sfx("card_play");
         await Fx.CustomScaledWait(0.05f, 0.1f);
 
-        // ── 效果本体（多重打出的循环脚手架，现在恒为 1 次）──
+        // ── 次数与去向,循环前一次定死（STS2 CardModel:1455-1462 原序）──
         PileType destination = card.DestinationPileAfterPlay;
-        const int playCount = 1;
+        int playCount = Hook.ModifyCardPlayCount(state, card, target, 1,
+            out List<GameModel> playCountModifiers);
+        await Hook.AfterModifyingCardPlayCount(state, card, playCountModifiers);
+
+        // ── 效果本体:【逐次】节拍（STS2 1464-1508 原序）──
         for (int i = 0; i < playCount; i++)
         {
+            if (i > 0)
+            {
+                Fx.Sfx("card_play");                     // 重放的第二声（AnimMultiCardPlay 位）
+                await Fx.CustomScaledWait(0.05f, 0.1f);
+            }
             var play = new CardPlay
             {
                 Card = card, Target = target, IsAutoPlay = isAutoPlay,
                 PlayIndex = i, PlayCount = playCount,
             };
+            await Hook.BeforeCardPlayed(state, card, target);   // 裁定13:起点广播——逐次,与 After 成对
+            pcs.RecordPlayInternal(card, state.RoundNumber);    // 史书逐次记账:重放=两条(STS2 双份账同义)
+            state.Events.Emit(new CardPlayStarted
+            {
+                Round = state.RoundNumber, Side = state.CurrentSide,
+                Card = card, Target = target, IsAutoPlay = isAutoPlay,
+            });
             await card.OnPlay(state, play);
+            state.Events.Emit(new CardPlayFinished
+            {
+                Round = state.RoundNumber, Side = state.CurrentSide,
+                Card = card, Destination = destination,          // 去向是预告值:循环后才真搬家(同 STS2 ResultPile)
+            });
+            if (!state.IsOver)                                   // STS2 IsInProgress 守卫原样
+                await Hook.AfterCardPlayed(state, card, target);
         }
 
-        // ── 虚无检查点（水密规则的落地）──
-        // 位置：OnPlay 跑完、卡还在 Play 堆（它触发自己的虚无时必须还算"打出中"）。
-        // 主人限定 + 边沿触发（NihilityArmed）+ 只对打出中的这张执行冒号效果。
-        // Step E 注意：回合末 Flush 清手【不设】检查点——否则每回合末必触发一次
-        //（不休陀螺的 IsPlayPhase 守卫，同一个教训）。
-        if (pcs.Hand.IsEmpty && pcs.NihilityArmed)
+        // ── 虚无检查点【裁定15 定稿】──
+        // 原创机制登记:冒号效果只属于"打出中"的这张(守卫 Pile==Play),故检查点住在去向前;
+        // 无状态——逐笔交易结账查一次,谁空手收场谁触发(武装已撤编,广播已随法令拆除);
+        // 回合末 Flush 不设检查点(不休陀螺 IsPlayPhase 教训,结构性封死)。
+        if (pcs.Hand.IsEmpty)
         {
             state.Events.Emit(new NihilityTriggered
             {
@@ -77,16 +106,18 @@ public static class CardCmd
             });
             if (card.Pile?.Type == PileType.Play)
                 await card.OnNihility(state);
-            await Hook.AfterNihilityTriggered(state, card.Owner!);
         }
-        pcs.NihilityArmed = !pcs.Hand.IsEmpty;   // 检查点【末尾】重新武装（冒号效果可能刚补了牌）
 
         // ── 去向 ──
-        if (card.Pile?.Type == PileType.Play)    // 效果可能已把自己搬走，搬走就不重复处理
+        if (card.Pile?.Type == PileType.Play)    // 效果可能已把自己搬走，搬走就不重复处理(明耀打击家族)
         {
             if (destination == PileType.Exhaust)
             {
                 await CardPileCmd.Exhaust(state, card);      // 走消耗动词 → 燃料触发
+            }
+            else if (destination == PileType.None)
+            {
+                pcs.PlayPile.RemoveInternal(card);           // 永续:离开牌堆宇宙(STS2 limbo 同款)
             }
             else
             {
@@ -94,13 +125,31 @@ public static class CardCmd
                 CardPile.Get(destination, card.Owner!)!.AddInternal(card);
             }
         }
-        state.Events.Emit(new CardPlayFinished
-        {
-            Round = state.RoundNumber, Side = state.CurrentSide,
-            Card = card, Destination = card.Pile?.Type ?? destination,
-        });
-        await Hook.AfterCardPlayed(state, card, target);
+        card.AfterPlayedCostCleanup();                       // 「直到打出」修正条离场（STS2 同位:去向后）
         return true;
+    }
+
+    /// <summary>【裁定14】落空路径(STS2 MoveToResultPileWithoutPlaying 同款):
+    /// 不结算、不扣费、不进史书,入 Play 堆走一遭后按去向归位——消耗词条照走消耗动词(燃料照触发)。</summary>
+    private static async Task MoveToDestinationWithoutPlaying(CombatState state, CardModel card)
+    {
+        PlayerCombatState pcs = card.Owner!.PlayerCombatState!;
+        card.Pile?.RemoveInternal(card);
+        pcs.PlayPile.AddInternal(card);
+        PileType destination = card.DestinationPileAfterPlay;
+        if (destination == PileType.Exhaust)
+        {
+            await CardPileCmd.Exhaust(state, card);
+        }
+        else if (destination == PileType.None)
+        {
+            pcs.PlayPile.RemoveInternal(card);
+        }
+        else
+        {
+            pcs.PlayPile.RemoveInternal(card);
+            CardPile.Get(destination, card.Owner!)!.AddInternal(card);
+        }
     }
 
     /// <summary>

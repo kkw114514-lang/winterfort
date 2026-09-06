@@ -1,0 +1,19 @@
+* text=auto
+
+*.cs text eol=lf
+*.csproj text eol=lf
+*.sln text eol=lf
+*.md text eol=lf
+*.gd text eol=lf
+*.godot text eol=lf
+*.tscn text eol=lf
+*.tres text eol=lf
+
+*.xlsx binary
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.dll binary
+*.so binary
+*.dylib binary

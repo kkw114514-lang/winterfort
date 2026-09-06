@@ -18,15 +18,28 @@ public abstract partial class CardModel
     protected internal virtual Task OnNihility(CombatState state) => Task.CompletedTask;
 
     /// <summary>
-    /// 打完去哪。Aura → Removed（偏离清单 #6：有户口的离场，替代 STS2 的无堆 limbo）；
-    /// 消耗关键词 → 消耗堆；其余 → 弃牌堆。
-    /// 以后"打出后置于抽牌堆顶"类效果来了，再把这里升级成 hook 可改（同 STS2）。
+    /// 本回合已打出的牌数,【不含正在结算的这一轮】(裁定12:计数不含自身)。
+    /// 史书逐轮记账,末条恒为本轮——天然排除;重放牌第二轮会数到自己的第一轮(同 STS2)。
+    /// </summary>
+    protected int PlayedThisTurnBesidesThis(CombatState state)
+    {
+        var history = Owner!.PlayerCombatState!.PlayHistory;
+        int n = 0;
+        for (int i = 0; i < history.Count - 1; i++)
+            if (history[i].Round == state.RoundNumber) n++;
+        return n;
+    }
+
+    /// <summary>
+    /// 打完去哪。永续 → None(【偏离#6 已翻案,回归 STS2】打出即离开牌堆宇宙,
+    /// 被动由 OnPlay 施加的 Aura buff 承载;None 哨兵当年就是照 STS2 备下的);
+    /// 消耗关键词 → 消耗堆;其余 → 弃牌堆。
     /// </summary>
     public virtual PileType DestinationPileAfterPlay =>
-        Type == CardType.Aura ? PileType.Removed :
+        Type == CardType.Aura ? PileType.None :
         HasKeyword(CardKeyword.Exhaust) ? PileType.Exhaust :
         PileType.Discard;
-    
+
     /// <summary>回合末是否留在手上。目前 = 保留关键词（"本回合保留"类 hook 到内容出现时加，STS2 有）。</summary>
     public bool ShouldRetainThisTurn => HasKeyword(CardKeyword.Retain);
 }

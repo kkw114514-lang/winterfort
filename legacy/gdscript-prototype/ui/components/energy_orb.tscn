@@ -1,0 +1,8 @@
+[gd_scene load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://ui/components/energy_orb.gd" id="1_energy_orb"]
+
+[node name="EnergyOrb" type="Panel"]
+custom_minimum_size = Vector2(104, 104)
+theme_type_variation = &"EnergyOrb"
+script = ExtResource("1_energy_orb")

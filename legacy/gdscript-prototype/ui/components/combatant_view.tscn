@@ -1,0 +1,7 @@
+[gd_scene load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://ui/components/combatant_view.gd" id="1_combatant_view"]
+
+[node name="CombatantView" type="Control"]
+custom_minimum_size = Vector2(260, 270)
+script = ExtResource("1_combatant_view")

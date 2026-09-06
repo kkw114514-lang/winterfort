@@ -1,0 +1,7 @@
+[gd_scene load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://ui/components/status_row.gd" id="1_status_row"]
+
+[node name="StatusRow" type="HBoxContainer"]
+custom_minimum_size = Vector2(420, 34)
+script = ExtResource("1_status_row")

@@ -1,0 +1,7 @@
+[gd_scene load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://ui/components/intent_view.gd" id="1_intent_view"]
+
+[node name="IntentView" type="HBoxContainer"]
+custom_minimum_size = Vector2(150, 44)
+script = ExtResource("1_intent_view")

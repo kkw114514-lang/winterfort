@@ -1,0 +1,132 @@
+[gd_scene format=3 uid="uid://r55rogeoc2wu"]
+
+[ext_resource type="Texture2D" uid="uid://di7usjfeltlld" path="res://ui/skin/top_bar.png" id="1_tb"]
+[ext_resource type="Texture2D" uid="uid://4iu6u34g8wg7" path="res://ui/skin/portrait_frame.png" id="2_pf"]
+[ext_resource type="Texture2D" uid="uid://buiypfn3msojl" path="res://ui/skin/combo_plaque.png" id="4_cb"]
+[ext_resource type="Texture2D" uid="uid://i1yl3pljadv2" path="res://ui/skin/portrait_default.png" id="5_pd"]
+
+[node name="ui_batchA" type="Control" unique_id=709411826]
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+scale = Vector2(0.467836, 0.46875)
+
+[node name="top_bar" type="NinePatchRect" parent="." unique_id=1341106740]
+layout_mode = 0
+offset_left = -66.262535
+offset_top = -23.466667
+offset_right = 2806.5388
+offset_bottom = 142.93332
+texture = ExtResource("1_tb")
+patch_margin_left = 100
+patch_margin_top = 44
+patch_margin_right = 100
+patch_margin_bottom = 44
+
+[node name="portrait_slot" type="Control" parent="." unique_id=497825093]
+anchors_preset = 0
+offset_left = 28.0
+offset_top = 235.0
+offset_right = 268.0
+offset_bottom = 475.0
+
+[node name="portrait_image" type="TextureRect" parent="portrait_slot" unique_id=80963492]
+layout_mode = 1
+anchors_preset = -1
+anchor_left = 0.16
+anchor_top = 0.169
+anchor_right = 0.835
+anchor_bottom = 0.86
+grow_horizontal = 2
+grow_vertical = 2
+texture = ExtResource("5_pd")
+expand_mode = 1
+stretch_mode = 6
+
+[node name="portrait_frame" type="TextureRect" parent="portrait_slot" unique_id=852698844]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+texture = ExtResource("2_pf")
+expand_mode = 1
+stretch_mode = 5
+
+[node name="combo_plaque" type="TextureRect" parent="." unique_id=553502387]
+layout_mode = 0
+offset_left = 360.0
+offset_top = 1178.0
+offset_right = 592.0
+offset_bottom = 1259.0
+texture = ExtResource("4_cb")
+expand_mode = 1
+stretch_mode = 5
+
+[node name="turn_text" type="Label" parent="." unique_id=900176062]
+layout_mode = 0
+offset_left = 70.0
+offset_top = 78.0
+offset_right = 360.0
+offset_bottom = 158.0
+theme_override_colors/font_color = Color(0.94, 0.9, 0.82, 1)
+theme_override_font_sizes/font_size = 46
+text = "回合 0"
+
+[node name="gold_text" type="Label" parent="." unique_id=1714271560]
+layout_mode = 0
+offset_left = 560.0
+offset_top = 84.0
+offset_right = 800.0
+offset_bottom = 152.0
+theme_override_colors/font_color = Color(0.94, 0.84, 0.56, 1)
+theme_override_font_sizes/font_size = 40
+text = "0"
+
+[node name="scene_text" type="Label" parent="." unique_id=39223466]
+layout_mode = 0
+offset_left = 1090.0
+offset_top = 80.0
+offset_right = 1646.0
+offset_bottom = 152.0
+theme_override_colors/font_color = Color(0.6, 0.58, 0.5, 1)
+theme_override_font_sizes/font_size = 42
+text = "风雪城堡 · 回廊"
+horizontal_alignment = 1
+
+[node name="floor_text" type="Label" parent="." unique_id=1507671229]
+layout_mode = 0
+offset_left = 2360.0
+offset_top = 84.0
+offset_right = 2694.0
+offset_bottom = 150.0
+theme_override_colors/font_color = Color(0.6, 0.58, 0.5, 1)
+theme_override_font_sizes/font_size = 38
+text = "第 0 层 0-0"
+horizontal_alignment = 2
+
+[node name="portrait_name" type="Label" parent="." unique_id=2031857994]
+layout_mode = 0
+offset_left = 20.0
+offset_top = 480.0
+offset_right = 276.0
+offset_bottom = 528.0
+theme_override_colors/font_color = Color(0.94, 0.84, 0.56, 1)
+theme_override_font_sizes/font_size = 30
+text = "契约师"
+horizontal_alignment = 1
+
+[node name="combo_text" type="Label" parent="." unique_id=366624260]
+layout_mode = 0
+offset_left = 378.0
+offset_top = 1194.0
+offset_right = 574.0
+offset_bottom = 1248.0
+theme_override_colors/font_color = Color(0.94, 0.84, 0.56, 1)
+theme_override_font_sizes/font_size = 32
+text = "连击 ×0"
+horizontal_alignment = 1

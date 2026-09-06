@@ -1,4 +1,5 @@
 using System;
+using System.Linq;
 using System.Threading.Tasks;
 
 namespace Kernel;
@@ -14,11 +15,22 @@ public static class BuffCmd
     /// </summary>
     public static async Task<T?> Apply<T>(CombatState state, Creature target, int amount, CardModel? source)
         where T : BuffModel
+        => (T?)await ApplyLike(state, target, ModelRegistry.Get<T>(), amount, source);
+
+    /// <summary>
+    /// 非泛型芯（镜炎判例=Misery：复制"目标身上有什么"需要按实例施加）。
+    /// prototype 传注册表定义或任何同类实例——内部按 Id 归并到 canonical。
+    /// 规则与泛型版完全一致，泛型版就是它的薄壳。
+    /// </summary>
+    public static async Task<BuffModel?> ApplyLike(CombatState state, Creature target,
+        BuffModel prototype, int amount, CardModel? source)
     {
         if (target.IsDead) return null;
-        if (amount == 0) return target.GetBuff<T>();
+        var canonical = (BuffModel)ModelRegistry.GetById(prototype.Id);
+        amount = Hook.ModifyBuffApplyAmount(state, target, canonical, amount, source);
+        BuffModel? existing = target.Buffs.FirstOrDefault(b => b.Id == canonical.Id && !b.Removed);
+        if (amount == 0) return existing;
 
-        T? existing = target.GetBuff<T>();
         if (existing != null)
         {
             if (existing.StackType == BuffStackType.Single) return existing;
@@ -28,7 +40,7 @@ public static class BuffCmd
 
         if (amount < 0) return null;
 
-        T buff = ModelRegistry.New<T>();
+        var buff = (BuffModel)canonical.MutableClone();
         buff.ApplyInternal(target, amount);
         state.Events.Emit(new BuffApplied
         {
@@ -84,15 +96,23 @@ public static class BuffCmd
     }
 
     /// <summary>
-    /// 灼伤提级（规则①）：目标没有灼伤 → 整个无效，返回 false；
-    /// 有 → 等级累加、封顶Ⅳ。加层走通用 Apply&lt;SearBuff&gt;，两条轨道互不相碰。
+    /// 灼伤提级。【裁定5修订】原规则①"无灼伤提级无效"作废:0 级视作可提——
+    /// buff 落地至少 1 层,故先生成Ⅰ级·1层(等同施加 1 层),再提剩余级数。
+    /// 有灼伤 → 等级累加、封顶Ⅳ。加层走通用 Apply&lt;SearBuff&gt;,两条轨道互不相碰。
     /// </summary>
     public static async Task<bool> RaiseSearLevel(CombatState state, Creature target, int levels, CardModel? source)
     {
         if (levels <= 0) throw new ArgumentException("提级数必须为正", nameof(levels));
+        if (target.IsDead) return false;
 
         SearBuff? sear = target.GetBuff<SearBuff>();
-        if (sear == null) return false;
+        if (sear == null)
+        {
+            sear = await Apply<SearBuff>(state, target, 1, source);   // 0 级起步:Ⅰ级·1层
+            if (sear == null) return false;
+            levels--;                                                  // 第一级已由出生承担
+            if (levels == 0) return true;
+        }
 
         int old = sear.Level;
         sear.RaiseLevelInternal(levels);

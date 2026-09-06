@@ -103,11 +103,28 @@ public abstract partial class CardModel : GameModel
 
     // ════════ 费用 ════════
     //
-    // 完整形态是四层：Canonical →（升级）→ _baseCost →（本回合修正）→（全局 hook）
-    // 后两层要等战斗层。
+    // 【S2 落地】四层齐了（当年注释的许诺兑现）：
+    //   Canonical →（升级）→ _baseCost →（局部修正条）→（全局 hook）→ Max(0)
+    // 局部修正条 = STS2 CardEnergyCost.LocalCostModifier；全局钩 = ModifyEnergyCostInCombat。
 
     private int _baseCost;
-    public int Cost => Math.Max(0, _baseCost);
+    private List<CostModifier> _costModifiers = new List<CostModifier>();
+
+    public int Cost
+    {
+        get
+        {
+            int num = _baseCost;
+            if (IsCanonical || CanonicalCost < 0)          // 定义本体不吃战斗层；无费牌不参与（同 STS2 双守卫）
+                return Math.Max(0, num);
+            foreach (CostModifier m in _costModifiers)
+                num = m.Modify(num);
+            CombatState? cs = Owner?.Creature.CombatState;
+            if (cs != null)
+                num = Hook.ModifyEnergyCost(cs, this, num);
+            return Math.Max(0, num);                        // 全局唯一出口封底（同 STS2 GetWithModifiers）
+        }
+    }
 
     /// <summary>是否有费用。无费牌（CanonicalCost &lt; 0，同 STS2 伤口的 -1 哨兵）
     /// 不参与一切费用比较，UI 不显示费用数字。注意 Cost 对负数封底为 0——
@@ -118,6 +135,42 @@ public abstract partial class CardModel : GameModel
     {
         AssertMutable();
         _baseCost += addend;
+    }
+
+    // ── 局部修正条的四个入口（狂战/女妖之嚎类内容从这进）──
+
+    public void AddCostThisTurn(int amount)
+    {
+        AssertMutable();
+        if (amount == 0) return;
+        _costModifiers.Add(new CostModifier(amount, absolute: false, CostModifierExpiration.EndOfTurn));
+    }
+
+    public void AddCostThisCombat(int amount)
+    {
+        AssertMutable();
+        if (amount == 0) return;
+        _costModifiers.Add(new CostModifier(amount, absolute: false, CostModifierExpiration.EndOfCombat));
+    }
+
+    public void SetCostThisTurn(int cost)
+    {
+        AssertMutable();
+        _costModifiers.Add(new CostModifier(cost, absolute: true, CostModifierExpiration.EndOfTurn));
+    }
+
+    /// <summary>「本回合」修正条过期（STS2 EndOfTurnCleanup）。CombatCmd 回合末统一扫。</summary>
+    internal bool EndOfTurnCostCleanup()
+    {
+        AssertMutable();
+        return _costModifiers.RemoveAll(m => m.Expiration.HasFlag(CostModifierExpiration.EndOfTurn)) > 0;
+    }
+
+    /// <summary>「直到打出」修正条过期（STS2 AfterCardPlayedCleanup）。CardCmd.Play 收尾扫。</summary>
+    internal bool AfterPlayedCostCleanup()
+    {
+        AssertMutable();
+        return _costModifiers.RemoveAll(m => m.Expiration.HasFlag(CostModifierExpiration.WhenPlayed)) > 0;
     }
 
     // ════════ 关键词与标记 ════════
@@ -277,6 +330,10 @@ public abstract partial class CardModel : GameModel
         _tags = new HashSet<CardTag>(TagSet);
         _vars = Vars.Clone();
 
+        var mods = new List<CostModifier>(_costModifiers.Count);
+        foreach (CostModifier m in _costModifiers) mods.Add(m.Clone());
+        _costModifiers = mods;
+
         // 附魔本身也是 GameModel，副本要有自己的一份
         if (Enchantment != null) Enchantment = Enchantment.MutableCloneAs<EnchantmentModel>();
         if (Affliction != null) Affliction = Affliction.MutableCloneAs<AfflictionModel>();
@@ -287,6 +344,7 @@ public abstract partial class CardModel : GameModel
         // 归属是运行时状态，副本必须从零开始——MemberwiseClone 会把引用一起拷走。
         Owner = null;
         Pile = null;
+        _costModifiers.Clear();   // 费用修正条同理：战斗态不跟人走
 
         // 目前还没有 event。战斗层加了 Drawn / Discarded / Exhausted 之类之后，
         // 每一个都必须在这里置 null —— MemberwiseClone 会把委托链一起复制。

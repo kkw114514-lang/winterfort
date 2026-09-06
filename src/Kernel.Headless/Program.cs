@@ -218,7 +218,7 @@ ModelRegistry.RegisterAllInAssembly(typeof(CardModel).Assembly);   // Kernel 侧
 {
     Check(ModelRegistry.Get<TestBasicAttack>().Id.ToString() == "CARD.TEST_BASIC_ATTACK",
         "ID 从类名机械派生", ModelRegistry.Get<TestBasicAttack>().Id.ToString());
-    Check(ModelRegistry.Count == 43, $"注册了 {ModelRegistry.Count} 个内容（应为 43）");
+    Check(ModelRegistry.Count == 119, $"注册了 {ModelRegistry.Count} 个内容（应为 119）");
 }
 
 // ── canonical 只读 ──
@@ -319,7 +319,7 @@ ModelRegistry.RegisterAllInAssembly(typeof(CardModel).Assembly);   // Kernel 侧
 // ── 掉落池归属 ──
 {
     Check(ModelRegistry.Get<TestBasicAttack>().IsInDropPool, "火系卡进掉落池");
-    Check(ModelRegistry.AllOf<CardModel>().Count() == 19, "AllOf<CardModel> 数量正确（5 旧 + 7 打出测试卡 + 2 回合测试卡 + 5 真卡）");
+    Check(ModelRegistry.AllOf<CardModel>().Count() == 83, "AllOf<CardModel> 数量正确（5 旧 + 11 打出测试卡 + 2 回合测试卡 + 65 真卡）");
 }
 Console.WriteLine();
 Console.WriteLine("[4] Creature 身体层");
@@ -643,7 +643,9 @@ Console.WriteLine("[6] Hook 总线与伤害管线");
 // ── 灼伤四规则 ──
 {
     var (s, h, e) = NewFight();
-    Check(!await BuffCmd.RaiseSearLevel(s, e, 1, null), "提级对没有灼伤的目标无效（规则①）");
+    Check(await BuffCmd.RaiseSearLevel(s, h.Creature, 1, null)
+          && h.Creature.GetBuff<SearBuff>() is { Amount: 1, Level: 1 },
+        "【裁定5修订】提级对无灼伤目标=生成Ⅰ级·1层（原'无效'作废）");
 
     var sear = await BuffCmd.Apply<SearBuff>(s, e, 3, null);
     Check(sear != null && sear.Level == 1 && sear.Amount == 3, "首次施加默认Ⅰ级·3层（规则①）");
@@ -669,17 +671,18 @@ Console.WriteLine("[6] Hook 总线与伤害管线");
     var (s, h, e) = NewFight();
     var a = await BuffCmd.Apply<StrengthBuff>(s, h.Creature, 3, null);
     var b = await BuffCmd.Apply<StrengthBuff>(s, h.Creature, 2, null);
-    Check(ReferenceEquals(a, b) && a!.Amount == 5, "Counter 合层：3+2=5，同一实例");
+    var strength = a ?? throw new InvalidOperationException("StrengthBuff 应用失败");
+    Check(ReferenceEquals(strength, b) && strength.Amount == 5, "Counter 合层：3+2=5，同一实例");
     Check(h.Creature.Buffs.Count == 1, "不产生第二个实例");
 
-    await BuffCmd.ChangeAmount(s, a, -7, null);
-    Check(a.Amount == -2 && !a.Removed, "力量可负且负数不移除（AllowNegative）");
+    await BuffCmd.ChangeAmount(s, strength, -7, null);
+    Check(strength.Amount == -2 && !strength.Removed, "力量可负且负数不移除（AllowNegative）");
 
     int dmg = Hook.ModifyDamage(s, e, h.Creature, 8m, ValueProp.Move, null, out _);
     Check(dmg == 6, "负力量参与结算：8-2=6", $"实际 {dmg}");
 
-    await BuffCmd.ChangeAmount(s, a, 2, null);
-    Check(a.Removed && !h.Creature.HasBuff<StrengthBuff>(), "可负 buff 恰好归零才移除（STS2 411 行规则）");
+    await BuffCmd.ChangeAmount(s, strength, 2, null);
+    Check(strength.Removed && !h.Creature.HasBuff<StrengthBuff>(), "可负 buff 恰好归零才移除（STS2 411 行规则）");
 }
 
 // ── ValueProp 语义 ──
@@ -851,7 +854,7 @@ Console.WriteLine("[7] 打出流程");
     Check(h.Creature.Block == 6, "燃料触发（途径②：被效果消耗）", $"盾 {h.Creature.Block}");
 }
 
-// ── Aura → Removed（偏离 #6 的落地）──
+// ── Aura → limbo(偏离 #6 翻案:同 STS2 Power——出场即离开牌堆宇宙)──
 {
     var (s, h, e) = NewFightR("aura");
     var pcs = h.PlayerCombatState!;
@@ -859,13 +862,12 @@ Console.WriteLine("[7] 打出流程");
     pcs.Hand.AddInternal(aura);
     var strike = s.CreateCard<TestStrikePlay>(h);
     pcs.Hand.AddInternal(strike);
-
     await CardCmd.Play(s, aura, null);
-    Check(aura.Pile == pcs.RemovedPile, "Aura 打完进 Removed 堆");
+    Check(aura.Pile == null, "Aura 打完不进任何堆(limbo,同 STS2 Power)");
+    Check(!pcs.AllCards.Contains(aura), "所有权名单也不含它(战斗内副本,牌库本体无损)");
     Check(!s.Events.Entries.OfType<CardExhausted>().Any(), "不是消耗——燃料/消耗事件都没有");
-
     await CardCmd.Play(s, strike, e);
-    Check(e.CurrentHp == 33, "躺在 Removed 的永续卡持续生效：6+1=7 伤", $"hp {e.CurrentHp}");
+    Check(e.CurrentHp == 34, "卡钩随堆籍一起失效:素 6 伤(被动必须活在 buff 里,见 Auras.cs)", $"hp {e.CurrentHp}");
 }
 
 // ── 抽牌：上限 / 洗回 ──
@@ -930,7 +932,7 @@ Console.WriteLine("[7] 打出流程");
     pcs.DrawPile.AddInternal(s.CreateCard<TestDefendPlay>(h));
 
     await CardCmd.Play(s, nihility, null);
-    // 打出（手1）→ 效果消耗 other（手0）→ 检查点：空&已武装 → 虚无：抽1（手1）
+    // 打出（手1）→ 效果消耗 other（手0）→ 检查点：空 → 虚无：抽1（手1）
     Check(s.Events.Entries.OfType<NihilityTriggered>().Count() == 1, "虚无触发一次（原例）");
     Check(pcs.Hand.Count == 1, "冒号效果抽回 1 张", $"手 {pcs.Hand.Count}");
     Check(other.Pile == pcs.ExhaustPile && nihility.Pile == pcs.ExhaustPile, "两张都进了消耗堆");
@@ -939,9 +941,60 @@ Console.WriteLine("[7] 打出流程");
     bool played = drawn is TestStrikePlay
         ? await CardCmd.Play(s, drawn, e)
         : await CardCmd.Play(s, drawn, null);
-    // 打出手里唯一一张 → 手牌再度变空 → 边沿已重新武装 → 第二次触发（"每次都触发"）
+    // 打出手里唯一一张 → 手牌再度变空 → 无状态检查点 → 第二次触发（"逐笔交易结账"）
     Check(played && s.Events.Entries.OfType<NihilityTriggered>().Count() == 2,
         "同回合第二次变空，再次触发");
+}
+
+// ── 三案联测·情况2(裁定15:无状态检查点——每笔空手结账各领各的) ──
+{
+    var (s, h, e) = NewFightR("vow-case2");
+    var pcs = h.PlayerCombatState!;
+    var a = s.CreateCard<TestVowEnergy>(h); pcs.Hand.AddInternal(a);
+    var b = s.CreateCard<TestVowShield>(h); pcs.Hand.AddInternal(b);
+    var c = s.CreateCard<TestDiscardTwoEnergy>(h); pcs.Hand.AddInternal(c);
+    int h0 = e.CurrentHp;
+
+    await CardCmd.Play(s, c, null);
+    // 能量账:3−1(C)+1(A虚无)+2(C正文)=5;链路:弃A弃B(手空)→遗言A(1伤,检查点:空→+1能)→遗言B(2伤,检查点:空→+1盾)→C正文+2能→C检查点:空→C无冒号
+    Check(pcs.Energy == 5, "情况2能量账:3-1+1+2=5(A 的虚无兑现)", $"能量 {pcs.Energy}");
+    Check(h.Creature.Block == 1, "B 的虚无也兑现:+1 盾——无状态检查点,每笔空手结账各领各的(武装已撤编)");
+    Check(h0 - e.CurrentHp == 3, "遗言双打:1+2=3(裁定14 随机靶=独苗)", $"{h0 - e.CurrentHp}");
+    Check(a.Pile == pcs.ExhaustPile && b.Pile == pcs.ExhaustPile && c.Pile == pcs.DiscardPile,
+        "归宿:A/B 消耗,C 弃牌堆");
+    Check(s.Events.Entries.OfType<NihilityTriggered>().Count() == 3,
+        "三笔交易各自空手结账 → 事件三条(旧武装版只有一条,此断言钉死撤编)");
+}
+
+// ── 三案联测·情况3(C 自己带冒号:排队最末,照样领到) ──
+{
+    var (s, h, e) = NewFightR("vow-case3");
+    var pcs = h.PlayerCombatState!;
+    pcs.DrawPile.AddInternal(s.CreateCard<TestDefendPlay>(h));
+    var a = s.CreateCard<TestVowEnergy>(h); pcs.Hand.AddInternal(a);
+    var b = s.CreateCard<TestVowShield>(h); pcs.Hand.AddInternal(b);
+    var c = s.CreateCard<TestDiscardTwoVowDraw>(h); pcs.Hand.AddInternal(c);
+
+    await CardCmd.Play(s, c, null);
+    // 链路同上,尾声不同:C 检查点空手 → C 的冒号:抽1(手 0→1)
+    Check(pcs.Energy == 3 && h.Creature.Block == 1, "A 能量、B 护盾照旧", $"能量 {pcs.Energy} 盾 {h.Creature.Block}");
+    Check(pcs.Hand.Count == 1, "C 自己的虚无:抽 1——冒号在自家检查点兑现", $"手 {pcs.Hand.Count}");
+    Check(s.Events.Entries.OfType<NihilityTriggered>().Count() == 3, "仍是三笔三响");
+}
+
+// ── 裁定14:全场无活敌,遗言落空直送去向堆 ──
+{
+    var (s, h, e) = NewFightR("whiff");
+    var pcs = h.PlayerCombatState!;
+    e.LoseHpInternal(e.CurrentHp, ValueProp.None);            // 独苗敌人裸死(不走 CheckEnd,战斗未终局)
+    var a = s.CreateCard<TestVowEnergy>(h); pcs.Hand.AddInternal(a);
+    var filler = s.CreateCard<TestDefendPlay>(h); pcs.Hand.AddInternal(filler);
+    int energy0 = pcs.Energy;
+
+    await CardCmd.Discard(s, a);                              // 弃 → 遗言自动打出 → 无活敌
+    Check(a.Pile == pcs.ExhaustPile, "落空归位:不结算,按消耗词条直送消耗堆(MoveToResultPileWithoutPlaying 同款)");
+    Check(!s.Events.Entries.OfType<CardPlayStarted>().Any(ev => ev.IsAutoPlay), "确实没打出:零自动打出事件");
+    Check(pcs.Energy == energy0 && e.CurrentHp == 0, "无伤无费:落空是干净的落空");
 }
 
 // ── 随机源未接线的清晰报错 ──
@@ -1972,7 +2025,7 @@ Console.WriteLine("[19] 小霜怪:抱团分工与强度守恒");
     f1.Monster!.RollNextMove(s);
     f2.Monster!.RollNextMove(s);
     Check(f1.Monster.NextMove!.Name == "扑打" && f2.Monster.NextMove!.Name == "挤靠",
-        "血多的扑打,血少的挤靠", $"{f1.Monster.NextMove.Name}/{f2.Monster.NextMove.Name}");
+        "血多的扑打,血少的挤靠", $"{f1.Monster.NextMove.Name}/{f2.Monster!.NextMove!.Name}");
 
     f2.HealInternal(5);                                                 // 20 = 20
     f1.Monster.RollNextMove(s);
@@ -2034,7 +2087,7 @@ Console.WriteLine("[20] 拾柴人与野火灵:分工、换岗与遗产");
         "分工:火恒燎,人恒添柴");
 
     await CombatCmd.EndPlayerTurn(s, infanta);
-    await CombatCmd.EnemyTurn(s);                                       // 名册序:燎(旧力量 0)→ 添柴 +2
+    await CombatCmd.EnemyTurn(s);                                       // 名册序:燎(旧力量 0)→ 添柴 +4
     Check(infanta.Creature.CurrentHp == 77,
         "本回合按旧力量烧:只掉 3(站位涌现,当回合的柴烧不着)", $"hp {infanta.Creature.CurrentHp}");
     Check(wf.Buffs.Any(b => b is StrengthBuff { Amount: 4 }), "柴已添:野火灵 +4 力量");
@@ -2077,6 +2130,1208 @@ Console.WriteLine("[20] 拾柴人与野火灵:分工、换岗与遗产");
     Check(wf.Buffs.Any(b => b is StrengthBuff { Amount: 4 }), "拾柴人死,力量不散——它是野火灵自己的");
     Check(wf.Monster!.IntentPreviewDamage(s) == 7, "燎预览仍 3+4=7:止得住变旺,止不了血",
         $"{wf.Monster.IntentPreviewDamage(s)}");
+}
+Console.WriteLine();
+Console.WriteLine("[21] C1 引火:灼伤开火权与计数族");
+
+// ── 瞄准 / 裁定5 / 火墙三连 ──
+{
+    var s = new CombatState(new RngSet("c1-sear"));
+    var infanta = new Player("Infanta", 80);
+    s.AddPlayer(infanta);
+    var a = CombatCmd.SpawnEnemy(s, ModelRegistry.New<QuietusSentry>());
+    var b = CombatCmd.SpawnEnemy(s, ModelRegistry.New<QuietusSentry>());
+    await CombatCmd.StartCombat(s, infanta);
+    var pcs = infanta.PlayerCombatState!;
+    var aim = s.CreateCard<TakeAim>(infanta); pcs.Hand.AddInternal(aim);
+    await CardCmd.Play(s, aim, a);
+    Check(a.GetBuff<SearBuff>() is { Amount: 2, Level: 1 }, "瞄准:2 层Ⅰ级");
+    await BuffCmd.RaiseSearLevel(s, b, 1, null);
+    Check(b.GetBuff<SearBuff>() is { Amount: 1, Level: 1 }, "裁定5:无灼伤提级=生成Ⅰ级·1层");
+    var wall = s.CreateCard<Firewall>(infanta); pcs.Hand.AddInternal(wall);
+    await CardCmd.Play(s, wall, a);
+    Check(a.GetBuff<SearBuff>() is { Amount: 3, Level: 2 } && infanta.Creature.Block == 5,
+        "火墙:加层(3)提级(Ⅱ)举盾(5)三连");
+}
+
+// ── 趁热两侧 / 热浪分伤(灼伤乘区一并入账)──
+{
+    var s = new CombatState(new RngSet("c1-hot"));
+    var infanta = new Player("Infanta", 80);
+    s.AddPlayer(infanta);
+    var a = CombatCmd.SpawnEnemy(s, ModelRegistry.New<QuietusSentry>());
+    var b = CombatCmd.SpawnEnemy(s, ModelRegistry.New<QuietusSentry>());
+    await CombatCmd.StartCombat(s, infanta);
+    var pcs = infanta.PlayerCombatState!;
+    await BuffCmd.Apply<SearBuff>(s, a, 1, null);
+    await BuffCmd.RaiseSearLevel(s, a, 1, null);          // a:Ⅱ级·1层
+    int a0 = a.CurrentHp, b0 = b.CurrentHp;
+    var iron1 = s.CreateCard<HotIron>(infanta); pcs.Hand.AddInternal(iron1);
+    await CardCmd.Play(s, iron1, a);
+    Check(a0 - a.CurrentHp == 24, "趁热达标:(7+9)×灼伤Ⅱ1.5 = 24", $"{a0 - a.CurrentHp}");
+    var iron2 = s.CreateCard<HotIron>(infanta); pcs.Hand.AddInternal(iron2);
+    await CardCmd.Play(s, iron2, b);
+    Check(b0 - b.CurrentHp == 7, "趁热未达标(Ⅰ级不算):素 7", $"{b0 - b.CurrentHp}");
+    int a1 = a.CurrentHp, b1 = b.CurrentHp;
+    var wave = s.CreateCard<HeatWave>(infanta); pcs.Hand.AddInternal(wave);
+    await CardCmd.Play(s, wave, null);                     // 全体卡:无目标直出
+    Check(a1 - a.CurrentHp == 15 && b1 - b.CurrentHp == 7,
+        "热浪分伤:带灼伤 (7+3)×1.5=15,干净的素 7",
+        $"a-{a1 - a.CurrentHp} b-{b1 - b.CurrentHp}");
+}
+
+// ── 群体烧伤 ──
+{
+    var s = new CombatState(new RngSet("c1-mass"));
+    var infanta = new Player("Infanta", 80);
+    s.AddPlayer(infanta);
+    var a = CombatCmd.SpawnEnemy(s, ModelRegistry.New<QuietusSentry>());
+    var b = CombatCmd.SpawnEnemy(s, ModelRegistry.New<QuietusSentry>());
+    await CombatCmd.StartCombat(s, infanta);
+    var pcs = infanta.PlayerCombatState!;
+    pcs.DrawPile.AddInternal(s.CreateCard<Attack>(infanta));
+    pcs.DrawPile.AddInternal(s.CreateCard<Attack>(infanta));
+    var mass = s.CreateCard<MassBurn>(infanta); pcs.Hand.AddInternal(mass);
+    await CardCmd.Play(s, mass, null);
+    Check(a.GetBuffAmount<SearBuff>() == 1 && b.GetBuffAmount<SearBuff>() == 1 && pcs.Hand.Count == 2,
+        "群体烧伤:双敌各 1 层 + 抽 2", $"手 {pcs.Hand.Count}");
+}
+
+// ── 计数族(裁定12:不含自身;乘风 v2:≤3 奖励前排)──
+{
+    var s = new CombatState(new RngSet("c1-count"));
+    var infanta = new Player("Infanta", 80);
+    s.AddPlayer(infanta);
+    var sentry = CombatCmd.SpawnEnemy(s, ModelRegistry.New<QuietusSentry>());
+    await CombatCmd.StartCombat(s, infanta);
+    var pcs = infanta.PlayerCombatState!;
+    pcs.DrawPile.AddInternal(s.CreateCard<Attack>(infanta));
+    pcs.DrawPile.AddInternal(s.CreateCard<Attack>(infanta));
+    var wind1 = s.CreateCard<Tailwind>(infanta); pcs.Hand.AddInternal(wind1);
+    var s1 = s.CreateCard<Shiftstep>(infanta); pcs.Hand.AddInternal(s1);
+    var s2 = s.CreateCard<Shiftstep>(infanta); pcs.Hand.AddInternal(s2);
+    var dash = s.CreateCard<Dash>(infanta); pcs.Hand.AddInternal(dash);
+    var fu = s.CreateCard<FollowUp>(infanta); pcs.Hand.AddInternal(fu);
+    await CardCmd.Play(s, wind1, null);                    // 已打 0 ≤ 3
+    Check(pcs.Hand.Count == 6, "乘风前排(已打0):抽 1+1", $"手 {pcs.Hand.Count}");
+    await CardCmd.Play(s, s1, null);
+    await CardCmd.Play(s, s2, null);
+    int h0 = sentry.CurrentHp;
+    await CardCmd.Play(s, dash, sentry);
+    Check(h0 - sentry.CurrentHp == 9, "突进:3+2×3(已打 3 张,不含自身)", $"{h0 - sentry.CurrentHp}");
+    int h1 = sentry.CurrentHp;
+    await CardCmd.Play(s, fu, sentry);
+    Check(h1 - sentry.CurrentHp == 16, "追击达标(已打 4 张):8+8", $"{h1 - sentry.CurrentHp}");
+    var wind2 = s.CreateCard<Tailwind>(infanta); pcs.Hand.AddInternal(wind2);
+    pcs.DrawPile.AddInternal(s.CreateCard<Attack>(infanta));
+    int hand0 = pcs.Hand.Count;
+    await CardCmd.Play(s, wind2, null);                    // 已打 5 > 3
+    Check(pcs.Hand.Count == hand0, "乘风后排(已打5):只抽 1(一出一进)", $"手 {pcs.Hand.Count}");
+    var rush = s.CreateCard<FlameRush>(infanta); pcs.Hand.AddInternal(rush);
+    await CardCmd.Play(s, rush, sentry);                   // 12+3×6=30,足以致命
+    Check(sentry.IsDead, "火焰冲击(12+3×6=30)收头");
+    Check(infanta.Creature.CurrentHp == 80, "终期未上身,零爆炸(M5 语义顺带复验)");
+}
+
+// ── 升级三抽查:数值/双数值/关键词 ──
+{
+    var s = new CombatState(new RngSet("c1-upg"));
+    var infanta = new Player("Infanta", 80);
+    s.AddPlayer(infanta);
+    var aim = s.CreateCard<TakeAim>(infanta);
+    aim.Upgrade();
+    Check(aim.Title == "瞄准+" && aim.Vars["Sear"].Int == 4, "瞄准+:标题挂号,2→4");
+    var iron = s.CreateCard<HotIron>(infanta);
+    iron.Upgrade();
+    Check(iron.Vars.Damage.Int == 10 && iron.Vars["Bonus"].Int == 10, "趁热+:7/9→10/10");
+    var wind = s.CreateCard<Tailwind>(infanta);
+    Check(!wind.HasKeyword(CardKeyword.Innate), "乘风素体无本能");
+    wind.Upgrade();
+    Check(wind.HasKeyword(CardKeyword.Innate), "乘风+:获得本能(AddKeyword 升级首用)");
+}
+Console.WriteLine();
+Console.WriteLine("[22] C2 拳法与常燃");
+
+// ── 奋击语序 / 提气 ──
+{
+    var s = new CombatState(new RngSet("c2-exert"));
+    var infanta = new Player("Infanta", 80);
+    s.AddPlayer(infanta);
+    var sentry = CombatCmd.SpawnEnemy(s, ModelRegistry.New<QuietusSentry>());
+    await CombatCmd.StartCombat(s, infanta);
+    var pcs = infanta.PlayerCombatState!;
+    int h0 = sentry.CurrentHp;
+    var exert = s.CreateCard<Exert>(infanta); pcs.Hand.AddInternal(exert);
+    await CardCmd.Play(s, exert, sentry);
+    Check(h0 - sentry.CurrentHp == 10 && exert.Pile?.Type == PileType.Exhaust,
+        "奋击:力量在前(9+1=10),打完进消耗堆", $"{h0 - sentry.CurrentHp}");
+    pcs.DrawPile.AddInternal(s.CreateCard<Attack>(infanta));
+    var brace = s.CreateCard<Brace>(infanta); pcs.Hand.AddInternal(brace);
+    await CardCmd.Play(s, brace, null);
+    Check(infanta.Creature.GetBuffAmount<StrengthBuff>() == 2 && pcs.Hand.Count == 1,
+        "提气:+1 力 +1 抽");
+}
+
+// ── 永续打出流程 + 血战(裸)+ 烈性联动 ──
+{
+    var s = new CombatState(new RngSet("c2-blood"));
+    var infanta = new Player("Infanta", 80);
+    s.AddPlayer(infanta);
+    CombatCmd.SpawnEnemy(s, ModelRegistry.New<QuietusSentry>());
+    await CombatCmd.StartCombat(s, infanta);
+    var pcs = infanta.PlayerCombatState!;
+
+    var aura = s.CreateCard<HotBlood>(infanta); pcs.Hand.AddInternal(aura);
+    await CardCmd.Play(s, aura, null);
+    Check(aura.Pile == null && infanta.Creature.GetBuff<HotBloodAura>() is { Amount: 1 },
+        "烈性:卡离开牌堆宇宙,被动上身");
+    Check(infanta.Creature.CurrentHp == 77 && infanta.Creature.GetBuffAmount<StrengthBuff>() == 1,
+        "语序照卡面:入场 3 点自伤触发自己 +1 力", $"hp {infanta.Creature.CurrentHp}");
+
+    await CreatureCmd.GainBlock(s, infanta.Creature, 3, ValueProp.Move, null);
+    var blood = s.CreateCard<Bloodletting>(infanta); pcs.Hand.AddInternal(blood);
+    await CardCmd.Play(s, blood, null);
+    Check(infanta.Creature.CurrentHp == 72 && infanta.Creature.Block == 3,
+        "血战:失去生命是裸的——盾纹丝不动", $"hp {infanta.Creature.CurrentHp}");
+    Check(infanta.Creature.GetBuffAmount<StrengthBuff>() == 6, "力量 1+1(烈性)+4(血战)=6");
+    Check(pcs.DiscardPile.Cards.Any(c => c is Ember) && blood.Pile?.Type == PileType.Exhaust,
+        "余烬入弃牌堆,血战本体消耗");
+
+    var bloodPlus = s.CreateCard<Bloodletting>(infanta);
+    bloodPlus.Upgrade();
+    pcs.Hand.AddInternal(bloodPlus);
+    await CardCmd.Play(s, bloodPlus, null);
+    Check(bloodPlus.Pile?.Type == PileType.Discard, "血战+:去掉消耗,打完进弃牌堆");
+}
+
+// ── 烈性细则:全挡不触发 / 逐跳触发 / 叠层倍增 ──
+{
+    var s = new CombatState(new RngSet("c2-hotblood"));
+    var infanta = new Player("Infanta", 80);
+    s.AddPlayer(infanta);
+    var sentry = CombatCmd.SpawnEnemy(s, ModelRegistry.New<QuietusSentry>());
+    await CombatCmd.StartCombat(s, infanta);
+    await BuffCmd.Apply<HotBloodAura>(s, infanta.Creature, 1, null);
+
+    await CreatureCmd.GainBlock(s, infanta.Creature, 10, ValueProp.Move, null);
+    await CreatureCmd.Damage(s, sentry, new[] { infanta.Creature }, 6, ValueProp.Move, null);
+    Check(infanta.Creature.GetBuff<StrengthBuff>() == null, "全被挡下:不算失去生命(裁定4)");
+
+    await CreatureCmd.Damage(s, sentry, new[] { infanta.Creature }, 6, ValueProp.Move, null);   // 挡4漏2
+    await CreatureCmd.Damage(s, sentry, new[] { infanta.Creature }, 6, ValueProp.Move, null);   // 全进
+    Check(infanta.Creature.GetBuffAmount<StrengthBuff>() == 2, "两跳各触发一次");
+
+    await BuffCmd.Apply<HotBloodAura>(s, infanta.Creature, 1, null);                            // 叠到 2 层
+    await CreatureCmd.Damage(s, sentry, new[] { infanta.Creature }, 6, ValueProp.Move, null);
+    Check(infanta.Creature.GetBuffAmount<StrengthBuff>() == 4, "叠层倍增:2 层 = 每跳 +2");
+}
+
+// ── 透支:能量与回合末自灼(一次性) ──
+{
+    var s = new CombatState(new RngSet("c2-overdraft"));
+    var infanta = new Player("Infanta", 80);
+    s.AddPlayer(infanta);
+    CombatCmd.SpawnEnemy(s, ModelRegistry.New<QuietusSentry>());
+    await CombatCmd.StartCombat(s, infanta);
+    var pcs = infanta.PlayerCombatState!;
+    var od = s.CreateCard<Overdraft>(infanta); pcs.Hand.AddInternal(od);
+    await CardCmd.Play(s, od, null);
+    Check(pcs.Energy == 7, "透支:3+4=7", $"能 {pcs.Energy}");
+    pcs.LoseEnergy(1);
+    await Hook.AfterTurnEnd(s, CombatSide.Player);
+    Check(infanta.Creature.GetBuffAmount<SearBuff>() == 6, "回合末:剩 6 能 → 自灼 6 层");
+    await Hook.AfterTurnEnd(s, CombatSide.Player);
+    Check(infanta.Creature.GetBuffAmount<SearBuff>() == 6, "一次性:第二个回合末不再触发");
+}
+
+// ── 施加量修正链:环(不问来源)+ 炽烈(只认你的) ──
+{
+    var s = new CombatState(new RngSet("c2-ring"));
+    var infanta = new Player("Infanta", 80);
+    s.AddPlayer(infanta);
+    var sentry = CombatCmd.SpawnEnemy(s, ModelRegistry.New<QuietusSentry>());
+    await CombatCmd.StartCombat(s, infanta);
+    var pcs = infanta.PlayerCombatState!;
+    await BuffCmd.Apply<EverflameRingAura>(s, infanta.Creature, 1, null);
+    await BuffCmd.Apply<IntensifyAura>(s, infanta.Creature, 1, null);
+    var aim = s.CreateCard<TakeAim>(infanta); pcs.Hand.AddInternal(aim);
+    await CardCmd.Play(s, aim, sentry);
+    Check(sentry.GetBuffAmount<SearBuff>() == 4, "瞄准 2 +环 1 +炽烈 1 = 4", $"{sentry.GetBuffAmount<SearBuff>()}");
+    await BuffCmd.Apply<SearBuff>(s, infanta.Creature, 1, null);
+    Check(infanta.Creature.GetBuffAmount<SearBuff>() == 1,
+        "打到你身上的灼伤:环不管(只管敌人),炽烈不管(不是你施加)");
+}
+
+// ── 烧刃:漏伤才点火 ──
+{
+    var s = new CombatState(new RngSet("c2-edge"));
+    var infanta = new Player("Infanta", 80);
+    s.AddPlayer(infanta);
+    var sentry = CombatCmd.SpawnEnemy(s, ModelRegistry.New<QuietusSentry>());
+    await CombatCmd.StartCombat(s, infanta);
+    var pcs = infanta.PlayerCombatState!;
+    await BuffCmd.Apply<BurningEdgeAura>(s, infanta.Creature, 1, null);
+    await CreatureCmd.GainBlock(s, sentry, 20, ValueProp.Move, null);
+    var atk1 = s.CreateCard<Attack>(infanta); pcs.Hand.AddInternal(atk1);
+    await CardCmd.Play(s, atk1, sentry);
+    Check(!sentry.HasBuff<SearBuff>(), "全被挡:不点火");
+    sentry.LoseBlockInternal(sentry.Block);
+    var atk2 = s.CreateCard<Attack>(infanta); pcs.Hand.AddInternal(atk2);
+    await CardCmd.Play(s, atk2, sentry);
+    Check(sentry.GetBuffAmount<SearBuff>() == 1, "漏伤:+1 灼伤");
+}
+
+// ── 白热化 + 灼伤精通 ──
+{
+    var s = new CombatState(new RngSet("c2-white"));
+    var infanta = new Player("Infanta", 80);
+    s.AddPlayer(infanta);
+    var a = CombatCmd.SpawnEnemy(s, ModelRegistry.New<QuietusSentry>());
+    var b = CombatCmd.SpawnEnemy(s, ModelRegistry.New<QuietusSentry>());
+    await CombatCmd.StartCombat(s, infanta);
+    var pcs = infanta.PlayerCombatState!;
+    await BuffCmd.Apply<SearMasteryAura>(s, infanta.Creature, 1, null);
+    var wh = s.CreateCard<WhiteHeat>(infanta); pcs.Hand.AddInternal(wh);
+    await CardCmd.Play(s, wh, a);
+    var atk1 = s.CreateCard<Attack>(infanta); pcs.Hand.AddInternal(atk1);
+    await CardCmd.Play(s, atk1, a);
+    Check(a.GetBuff<SearBuff>() is { Level: 1, Amount: 1 }, "白热化+攻击:裁定5 生成Ⅰ级·1层");
+    var atk2 = s.CreateCard<Attack>(infanta); pcs.Hand.AddInternal(atk2);
+    await CardCmd.Play(s, atk2, a);
+    Check(a.GetBuff<SearBuff>()!.Level == 2, "再攻击:提到Ⅱ");
+    await Hook.AfterTurnEnd(s, CombatSide.Player);
+    Check(a.GetBuff<SearBuff>()!.Level == 3 && !b.HasBuff<SearBuff>(),
+        "精通:有灼伤的 a 提到Ⅲ,干净的 b 明文排除");
+}
+
+// ── 火烧连环:链抽 ──
+{
+    var s = new CombatState(new RngSet("c2-chain"));
+    var infanta = new Player("Infanta", 80);
+    s.AddPlayer(infanta);
+    var sentry = CombatCmd.SpawnEnemy(s, ModelRegistry.New<QuietusSentry>());
+    await CombatCmd.StartCombat(s, infanta);
+    var pcs = infanta.PlayerCombatState!;
+    pcs.DrawPile.AddInternal(s.CreateCard<Attack>(infanta));
+    pcs.DrawPile.AddInternal(s.CreateCard<Attack>(infanta));
+    var chain = s.CreateCard<ChainBlaze>(infanta); pcs.Hand.AddInternal(chain);
+    await CardCmd.Play(s, chain, null);
+    Check(pcs.Hand.Count == 1, "连环:抽到第一张并盯住");
+    CardModel first = pcs.Hand.Cards[0];
+    await CardCmd.Play(s, first, sentry);
+    Check(pcs.Hand.Count == 1, "打出被盯的牌:链重燃,又抽一张");
+    CardModel second = pcs.Hand.Cards[0];
+    await CardCmd.Play(s, second, sentry);
+    Check(pcs.Hand.Count == 1 && pcs.DrawPile.Count == 1 && pcs.DiscardPile.Count == 1,
+        "第三跳:洗回续链——After 在进弃牌堆之前发(STS2 时序),正结算的攻击B不参与洗回",
+        $"手{pcs.Hand.Count} 抽{pcs.DrawPile.Count} 弃{pcs.DiscardPile.Count}");
+}
+
+// ── 火烧连环:两堆全干才是真的干 ──
+{
+    var s = new CombatState(new RngSet("c2-chain-dry"));
+    var infanta = new Player("Infanta", 80);
+    s.AddPlayer(infanta);
+    CombatCmd.SpawnEnemy(s, ModelRegistry.New<QuietusSentry>());
+    await CombatCmd.StartCombat(s, infanta);
+    var pcs = infanta.PlayerCombatState!;
+    var chain = s.CreateCard<ChainBlaze>(infanta); pcs.Hand.AddInternal(chain);
+    await CardCmd.Play(s, chain, null);               // 能量账:1 ≤ 3 ✓ 抽/弃两堆皆空
+    Check(pcs.Hand.Count == 0 && pcs.DrawPile.Count == 0 && pcs.DiscardPile.Count == 1,
+        "两堆全干:抽不到,链不武装,不崩(弃牌堆只剩连环自己)");
+}
+
+// ── 烈焰审判(裁定9:消灭是真死亡,终期照爆)──
+{
+    var s = new CombatState(new RngSet("c2-trial"));
+    var infanta = new Player("Infanta", 80);
+    s.AddPlayer(infanta);
+    var sentry = CombatCmd.SpawnEnemy(s, ModelRegistry.New<QuietusSentry>());
+    await CombatCmd.StartCombat(s, infanta);
+    var pcs = infanta.PlayerCombatState!;
+    await BuffCmd.Apply<QuietusBuff>(s, sentry, 2, null);
+    await BuffCmd.Apply<SearBuff>(s, sentry, 1, null);
+    await BuffCmd.RaiseSearLevel(s, sentry, 3, null);         // Ⅳ
+    var trial = s.CreateCard<TrialByFire>(infanta); pcs.Hand.AddInternal(trial);
+    await CardCmd.Play(s, trial, sentry);
+    Check(sentry.IsDead, "灼伤Ⅳ:消灭");
+    Check(infanta.Creature.CurrentHp == 76, "真死亡:终期 2×2=4 照爆(裁定9)", $"hp {infanta.Creature.CurrentHp}");
+}
+
+{
+    var s = new CombatState(new RngSet("c2-trial-miss"));
+    var infanta = new Player("Infanta", 80);
+    s.AddPlayer(infanta);
+    var sentry = CombatCmd.SpawnEnemy(s, ModelRegistry.New<QuietusSentry>());
+    await CombatCmd.StartCombat(s, infanta);
+    var pcs = infanta.PlayerCombatState!;
+    await BuffCmd.Apply<SearBuff>(s, sentry, 1, null);
+    await BuffCmd.RaiseSearLevel(s, sentry, 2, null);         // Ⅲ
+    var trial = s.CreateCard<TrialByFire>(infanta); pcs.Hand.AddInternal(trial);
+    await CardCmd.Play(s, trial, sentry);
+    Check(sentry.IsAlive, "Ⅲ级:审判落空,目标存活");
+}
+
+// ── 烈阳神罚:段数与灭杀连锁 ──
+{
+    var s = new CombatState(new RngSet("c2-sun"));
+    var infanta = new Player("Infanta", 80);
+    s.AddPlayer(infanta);
+    var golem = CombatCmd.SpawnEnemy(s, ModelRegistry.New<SnowGolem>());
+    await CombatCmd.StartCombat(s, infanta);
+    var pcs = infanta.PlayerCombatState!;
+    await BuffCmd.Apply<SearBuff>(s, golem, 1, null);
+    await BuffCmd.RaiseSearLevel(s, golem, 1, null);          // Ⅱ级
+    int g0 = golem.CurrentHp;
+    var sun = s.CreateCard<Sunwrath>(infanta); pcs.Hand.AddInternal(sun);
+    await CardCmd.Play(s, sun, golem);
+    Check(g0 - golem.CurrentHp == 36, "Ⅱ级:3 段 ×(8×1.5)=36", $"{g0 - golem.CurrentHp}");
+}
+
+{
+    var s = new CombatState(new RngSet("c2-sun-kill"));
+    var infanta = new Player("Infanta", 80);
+    s.AddPlayer(infanta);
+    var f1 = CombatCmd.SpawnEnemy(s, ModelRegistry.New<Frostling>());
+    var f2 = CombatCmd.SpawnEnemy(s, ModelRegistry.New<Frostling>());
+    await CombatCmd.StartCombat(s, infanta);
+    var pcs = infanta.PlayerCombatState!;
+    f1.LoseHpInternal(f1.CurrentHp - 15, ValueProp.None);
+    await BuffCmd.Apply<SearBuff>(s, f1, 1, null);            // Ⅰ级:2 段 ×10 = 20 ≥ 15
+    var sun = s.CreateCard<Sunwrath>(infanta); pcs.Hand.AddInternal(sun);
+    await CardCmd.Play(s, sun, f1);
+    Check(f1.IsDead, "击杀达成");
+    Check(f2.GetBuff<SearBuff>() is { Amount: 2, Level: 2 },
+        "灭杀连锁:幸存者 2 层 + 提级(裁定5:0级起步再+Ⅰ=Ⅱ)");
+}
+
+// ── 焚化炉 / 复燃核心 / 永燃斗魂 ──
+{
+    var s = new CombatState(new RngSet("c2-incin"));
+    var infanta = new Player("Infanta", 80);
+    s.AddPlayer(infanta);
+    CombatCmd.SpawnEnemy(s, ModelRegistry.New<QuietusSentry>());
+    await CombatCmd.StartCombat(s, infanta);
+    var pcs = infanta.PlayerCombatState!;
+    await BuffCmd.Apply<IncineratorAura>(s, infanta.Creature, 1, null);
+    for (int i = 0; i < 3; i++) pcs.DrawPile.AddInternal(s.CreateCard<Attack>(infanta));
+    await Hook.AfterTurnStarted(s, CombatSide.Player);
+    Check(pcs.Hand.Count == 2 && infanta.Creature.GetBuffAmount<StrengthBuff>() == 3,
+        "焚化炉开工:抽 2、+3 力");
+    await Hook.AfterTurnEnd(s, CombatSide.Player);
+    Check(pcs.ExhaustPile.Count == 1, "无余烬:改烧堆顶——堆里只剩 1 张就烧 1 张", $"耗 {pcs.ExhaustPile.Count}");
+    var ember = s.CreateCard<Ember>(infanta); pcs.Hand.AddInternal(ember);
+    await Hook.AfterTurnEnd(s, CombatSide.Player);
+    Check(ember.Pile?.Type == PileType.Exhaust, "有余烬:优先烧余烬");
+}
+
+{
+    var s = new CombatState(new RngSet("c2-rekindle"));
+    var infanta = new Player("Infanta", 80);
+    s.AddPlayer(infanta);
+    CombatCmd.SpawnEnemy(s, ModelRegistry.New<QuietusSentry>());
+    await CombatCmd.StartCombat(s, infanta);
+    var pcs = infanta.PlayerCombatState!;
+    await BuffCmd.Apply<RekindleAura>(s, infanta.Creature, 1, null);
+    pcs.DrawPile.AddInternal(s.CreateCard<Attack>(infanta));
+    var junk = s.CreateCard<Ember>(infanta); pcs.Hand.AddInternal(junk);
+    await CardPileCmd.Exhaust(s, junk);
+    Check(pcs.Hand.Count == 1, "复燃核心:有牌被消耗 → 抽 1");
+    for (int i = 0; i < 4; i++) pcs.ExhaustPile.AddInternal(s.CreateCard<Ember>(infanta));
+    var spirit = s.CreateCard<EverburningSpirit>(infanta); pcs.Hand.AddInternal(spirit);
+    await CardCmd.Play(s, spirit, null);
+    Check(infanta.Creature.GetBuffAmount<StrengthBuff>() == 2,
+        "永燃斗魂:消耗堆 5 张(4+余烬)/2 = 2 力", $"力 {infanta.Creature.GetBuffAmount<StrengthBuff>()}");
+}
+
+// ── 赤热刺快账 ──
+{
+    var s = new CombatState(new RngSet("c2-jab"));
+    var infanta = new Player("Infanta", 80);
+    s.AddPlayer(infanta);
+    var sentry = CombatCmd.SpawnEnemy(s, ModelRegistry.New<QuietusSentry>());
+    await CombatCmd.StartCombat(s, infanta);
+    var pcs = infanta.PlayerCombatState!;
+    int h0 = sentry.CurrentHp;
+    var jab = s.CreateCard<RedHotJab>(infanta); pcs.Hand.AddInternal(jab);
+    await CardCmd.Play(s, jab, sentry);               // 能量账:2 ≤ 3 ✓
+    Check(h0 - sentry.CurrentHp == 14 && sentry.GetBuffAmount<SearBuff>() == 1
+          && sentry.GetBuffAmount<WeakenBuff>() == 1, "赤热刺:14/1灼/1弱");
+}
+
+// ── 焚身(断言先过血条:44–48 的哨兵只挨这一下)──
+{
+    var s = new CombatState(new RngSet("c2-combust"));
+    var infanta = new Player("Infanta", 80);
+    s.AddPlayer(infanta);
+    var sentry = CombatCmd.SpawnEnemy(s, ModelRegistry.New<QuietusSentry>());
+    await CombatCmd.StartCombat(s, infanta);
+    var pcs = infanta.PlayerCombatState!;
+    await BuffCmd.Apply<SearBuff>(s, sentry, 1, null);        // 预置灼伤Ⅰ·1层(顶替赤热刺那口)
+    var burst = s.CreateCard<Combust>(infanta); pcs.Hand.AddInternal(burst);
+    int h1 = sentry.CurrentHp;
+    await CardCmd.Play(s, burst, sentry);             // 能量账:1 ≤ 3 ✓
+    Check(h1 - sentry.CurrentHp == 37 && infanta.Creature.GetBuff<SearBuff>() is { Amount: 3, Level: 2 },
+        "焚身:30×1.25(目标灼Ⅰ)=37,自灼 3 层并自提Ⅱ级", $"{h1 - sentry.CurrentHp}");
+    Check(sentry.IsAlive, "37 装得进 44–48 的血条(上一版 14+37 溢出被截断成 30)");
+}
+
+// ── 引火烧身(活目标 + 足额能量:上一版双闸全关)──
+{
+    var s = new CombatState(new RngSet("c2-backdraft"));
+    var infanta = new Player("Infanta", 80);
+    s.AddPlayer(infanta);
+    var sentry = CombatCmd.SpawnEnemy(s, ModelRegistry.New<QuietusSentry>());
+    await CombatCmd.StartCombat(s, infanta);
+    var pcs = infanta.PlayerCombatState!;
+    await BuffCmd.Apply<SearBuff>(s, sentry, 1, null);            // 敌:Ⅰ级·1层
+    await BuffCmd.Apply<SearBuff>(s, infanta.Creature, 3, null);  // 己:3 层……
+    await BuffCmd.RaiseSearLevel(s, infanta.Creature, 1, null);   // ……提Ⅱ(顶替焚身的余波)
+    var bd = s.CreateCard<Backdraft>(infanta); pcs.Hand.AddInternal(bd);
+    int hp0 = infanta.Creature.CurrentHp;
+    await CardCmd.Play(s, bd, sentry);                // 能量账:1 ≤ 3 ✓ 目标活着 ✓
+    Check(sentry.GetBuff<SearBuff>() is { Amount: 4, Level: 2 },
+        "引火烧身:敌灼 1+3=4 层,Ⅰ提Ⅱ", $"层{sentry.GetBuffAmount<SearBuff>()}");
+    Check(infanta.Creature.CurrentHp == hp0 - 3
+          && infanta.Creature.GetBuff<SearBuff>() is { Amount: 5, Level: 2 },
+        "自伤 2 走管线且吃自己的灼Ⅱ(×1.5=3);自灼 3+2=5 层", $"hp {infanta.Creature.CurrentHp}");
+}
+
+// ── 升级抽查 ──
+{
+    var s = new CombatState(new RngSet("c2-upg"));
+    var infanta = new Player("Infanta", 80);
+    s.AddPlayer(infanta);
+    var chain = s.CreateCard<ChainBlaze>(infanta);
+    chain.Upgrade();
+    Check(chain.Cost == 0, "连环+:费用 1→0");
+    var od = s.CreateCard<Overdraft>(infanta);
+    od.Upgrade();
+    Check(od.Vars["Energy"].Int == 6, "透支+:4→6");
+    var burst = s.CreateCard<Combust>(infanta);
+    burst.Upgrade();
+    Check(burst.Vars["SelfSear"].Int == 1, "焚身+:自灼 3→1(负增量升级首用)");
+}
+Console.WriteLine("[23] S1 选择器 / S2 费用层 / 多重打出");
+
+// ── S1:空手落空 / 不足自动全拿(免确认零 UI) ──
+{
+    var s = new CombatState(new RngSet("c3-sel"));
+    var infanta = new Player("Infanta", 80);
+    s.AddPlayer(infanta);
+    CombatCmd.SpawnEnemy(s, ModelRegistry.New<QuietusSentry>());
+    await CombatCmd.StartCombat(s, infanta);
+    var pcs = infanta.PlayerCombatState!;
+
+    var none = await CardSelectCmd.Immolate(s, infanta, 2, null!);
+    Check(none.Count == 0 && pcs.ExhaustPile.Count == 0, "焚毁遇空手:落空不崩(燃烧契约边界)");
+
+    var a = s.CreateCard<Attack>(infanta); pcs.Hand.AddInternal(a);
+    var one = await CardSelectCmd.Immolate(s, infanta, 2, null!);
+    Check(one.Count == 1 && a.Pile == pcs.ExhaustPile,
+        "手牌不足 N:有多少焚多少——min==max 免确认,不弹选择器(STS2 原式)");
+}
+
+// ── S1:脚本选择器精确点名 / 独占守卫 ──
+{
+    var s = new CombatState(new RngSet("c3-sel2"));
+    var infanta = new Player("Infanta", 80);
+    s.AddPlayer(infanta);
+    CombatCmd.SpawnEnemy(s, ModelRegistry.New<QuietusSentry>());
+    await CombatCmd.StartCombat(s, infanta);
+    var pcs = infanta.PlayerCombatState!;
+    var a = s.CreateCard<Attack>(infanta); pcs.Hand.AddInternal(a);
+    var b = s.CreateCard<Attack>(infanta); pcs.Hand.AddInternal(b);
+    var c = s.CreateCard<Attack>(infanta); pcs.Hand.AddInternal(c);
+
+    using (CardSelectCmd.UseSelector(new ScriptedCardSelector().Then(pool => new[] { pool[1] })))
+    {
+        bool doubled = false;
+        try { CardSelectCmd.UseSelector(new ScriptedCardSelector()); }
+        catch (InvalidOperationException) { doubled = true; }
+        Check(doubled, "选择器独占:二次 UseSelector 抛(同 STS2 守卫)");
+
+        await CardSelectCmd.Immolate(s, infanta, 1, null!);
+        Check(b.Pile == pcs.ExhaustPile && a.Pile == pcs.Hand && c.Pile == pcs.Hand,
+            "脚本选择器点名第 2 张:只烧 b,a/c 原地");
+    }
+    Check(CardSelectCmd.Selector == null, "using 退场:选择器栈清空");
+}
+
+// ── S2:修正条三性(相对/封底/过期) ──
+{
+    var s = new CombatState(new RngSet("c3-cost"));
+    var infanta = new Player("Infanta", 80);
+    s.AddPlayer(infanta);
+    CombatCmd.SpawnEnemy(s, ModelRegistry.New<QuietusSentry>());
+    await CombatCmd.StartCombat(s, infanta);
+    var pcs = infanta.PlayerCombatState!;
+    var turnCard = s.CreateCard<Attack>(infanta); pcs.Hand.AddInternal(turnCard);
+    var combatCard = s.CreateCard<Attack>(infanta); pcs.Hand.AddInternal(combatCard);
+
+    turnCard.AddCostThisTurn(-1);
+    Check(turnCard.Cost == 0, "本回合 -1:费用 1→0");
+    turnCard.AddCostThisTurn(-5);
+    Check(turnCard.Cost == 0, "出口封底:负到底也是 0(全局唯一封底点)");
+    combatCard.AddCostThisCombat(-1);
+    Check(combatCard.Cost == 0, "本场 -1:费用 1→0");
+
+    await CombatCmd.EndPlayerTurn(s, infanta);
+    Check(turnCard.Cost == 1, "回合末清扫:「本回合」条过期,费用回 1(STS2 EndOfTurnCleanup)");
+    Check(combatCard.Cost == 0, "「本场」条不受回合末清扫");
+}
+
+// ── S3:多重打出只认焚毁卡,不消耗则层数不动 ──
+{
+    var s = new CombatState(new RngSet("c3-dup"));
+    var infanta = new Player("Infanta", 80);
+    s.AddPlayer(infanta);
+    var sentry = CombatCmd.SpawnEnemy(s, ModelRegistry.New<QuietusSentry>());
+    await CombatCmd.StartCombat(s, infanta);
+    var pcs = infanta.PlayerCombatState!;
+    await BuffCmd.Apply<GreasePotBuff>(s, infanta.Creature, 1, null);
+    var atk = s.CreateCard<Attack>(infanta); pcs.Hand.AddInternal(atk);
+    int h0 = sentry.CurrentHp;
+    await CardCmd.Play(s, atk, sentry);
+    Check(h0 - sentry.CurrentHp == 6 && infanta.Creature.GetBuffAmount<GreasePotBuff>() == 1,
+        "非焚毁卡:单发照旧,油脂一层不掉(修改者名单为空=零回调)");
+}
+
+Console.WriteLine("[24] C3 终曲:三十卡收官");
+
+// ── 焚牌:抽了再选 ──
+{
+    var s = new CombatState(new RngSet("c3-tinder"));
+    var infanta = new Player("Infanta", 80);
+    s.AddPlayer(infanta);
+    CombatCmd.SpawnEnemy(s, ModelRegistry.New<QuietusSentry>());
+    await CombatCmd.StartCombat(s, infanta);
+    var pcs = infanta.PlayerCombatState!;
+    pcs.DrawPile.AddInternal(s.CreateCard<Attack>(infanta));
+    var a1 = s.CreateCard<Attack>(infanta); pcs.Hand.AddInternal(a1);
+    var tinder = s.CreateCard<Tinder>(infanta); pcs.Hand.AddInternal(tinder);
+
+    using (CardSelectCmd.UseSelector(new ScriptedCardSelector()))   // 默认:从头拿满 min
+    {
+        await CardCmd.Play(s, tinder, null);                        // 能量账:0 ✓
+        Check(pcs.Hand.Count == 1 && a1.Pile == pcs.ExhaustPile && tinder.Pile == pcs.DiscardPile,
+            "焚牌:抽 1(手 2)再焚 1(烧 a1)——先抽后选,池子含新抽");
+    }
+}
+
+// ── 掷火:池恰 1 张走自动路 ──
+{
+    var s = new CombatState(new RngSet("c3-throw"));
+    var infanta = new Player("Infanta", 80);
+    s.AddPlayer(infanta);
+    var sentry = CombatCmd.SpawnEnemy(s, ModelRegistry.New<QuietusSentry>());
+    await CombatCmd.StartCombat(s, infanta);
+    var pcs = infanta.PlayerCombatState!;
+    var filler = s.CreateCard<Attack>(infanta); pcs.Hand.AddInternal(filler);
+    var tf = s.CreateCard<ThrowFire>(infanta); pcs.Hand.AddInternal(tf);
+    int h0 = sentry.CurrentHp;
+    await CardCmd.Play(s, tf, sentry);                              // 能量账:1 ✓ 未装选择器:自动路必须走通
+    Check(h0 - sentry.CurrentHp == 12 && filler.Pile == pcs.ExhaustPile, "掷火:12 + 焚毁唯一候选(零选择器)");
+}
+
+// ── 挥霍:抽 3 焚 2;升级焚 1 ──
+{
+    var s = new CombatState(new RngSet("c3-squander"));
+    var infanta = new Player("Infanta", 80);
+    s.AddPlayer(infanta);
+    CombatCmd.SpawnEnemy(s, ModelRegistry.New<QuietusSentry>());
+    await CombatCmd.StartCombat(s, infanta);
+    var pcs = infanta.PlayerCombatState!;
+    for (int i = 0; i < 3; i++) pcs.DrawPile.AddInternal(s.CreateCard<Attack>(infanta));
+    var f1 = s.CreateCard<Attack>(infanta); pcs.Hand.AddInternal(f1);
+    var f2 = s.CreateCard<Attack>(infanta); pcs.Hand.AddInternal(f2);
+    var sq = s.CreateCard<Squander>(infanta); pcs.Hand.AddInternal(sq);
+
+    using (CardSelectCmd.UseSelector(new ScriptedCardSelector()))   // 池 5 张:默认拿前 2(f1,f2)
+    {
+        await CardCmd.Play(s, sq, null);                            // 能量账:1 ✓
+        Check(pcs.Hand.Count == 3 && pcs.ExhaustPile.Count == 2, "挥霍:抽 3 焚 2,手上净 +0 变 3");
+    }
+    var sq2 = s.CreateCard<Squander>(infanta);
+    sq2.Upgrade();
+    Check(sq2.Vars["Burn"].Int == 1, "挥霍+:焚毁 2→1(负增量)");
+}
+
+// ── 投薪 / 焚牌蓄力:力量账 ──
+{
+    var s = new CombatState(new RngSet("c3-feed"));
+    var infanta = new Player("Infanta", 80);
+    s.AddPlayer(infanta);
+    CombatCmd.SpawnEnemy(s, ModelRegistry.New<QuietusSentry>());
+    await CombatCmd.StartCombat(s, infanta);
+    var pcs = infanta.PlayerCombatState!;
+    var a = s.CreateCard<Attack>(infanta); pcs.Hand.AddInternal(a);
+    var b = s.CreateCard<Attack>(infanta); pcs.Hand.AddInternal(b);
+    var feed = s.CreateCard<FeedTheFire>(infanta); pcs.Hand.AddInternal(feed);
+    await CardCmd.Play(s, feed, null);                              // 能量账:1 ✓ 池=min:自动全拿
+    Check(infanta.Creature.GetBuffAmount<StrengthBuff>() == 4 && pcs.ExhaustPile.Count == 3,
+        "投薪:+4 力,烧 2 + 自耗 = 消耗堆 3");
+
+    var feed2 = s.CreateCard<FeedTheFire>(infanta);
+    feed2.Upgrade();
+    Check(!feed2.HasKeyword(CardKeyword.Exhaust), "投薪+:去「消耗」");
+}
+
+{
+    var s = new CombatState(new RngSet("c3-fireup"));
+    var infanta = new Player("Infanta", 80);
+    s.AddPlayer(infanta);
+    CombatCmd.SpawnEnemy(s, ModelRegistry.New<QuietusSentry>());
+    await CombatCmd.StartCombat(s, infanta);
+    var pcs = infanta.PlayerCombatState!;
+    var atk = s.CreateCard<Attack>(infanta); pcs.Hand.AddInternal(atk);
+    var fu = s.CreateCard<FireUp>(infanta); pcs.Hand.AddInternal(fu);
+    await CardCmd.Play(s, fu, null);                                // 烧的是攻击牌
+    Check(infanta.Creature.GetBuffAmount<StrengthBuff>() == 3, "蓄力烧攻击:2+1=3 力");
+
+    var s2 = new CombatState(new RngSet("c3-fireup2"));
+    var infanta2 = new Player("Infanta", 80);
+    s2.AddPlayer(infanta2);
+    CombatCmd.SpawnEnemy(s2, ModelRegistry.New<QuietusSentry>());
+    await CombatCmd.StartCombat(s2, infanta2);
+    var pcs2 = infanta2.PlayerCombatState!;
+    var wind = s2.CreateCard<Tailwind>(infanta2); pcs2.Hand.AddInternal(wind);
+    var fu2 = s2.CreateCard<FireUp>(infanta2); pcs2.Hand.AddInternal(fu2);
+    await CardCmd.Play(s2, fu2, null);                              // 烧的是法术
+    Check(infanta2.Creature.GetBuffAmount<StrengthBuff>() == 2, "蓄力烧法术:只有素 2 力");
+}
+
+// ── 孤注:全烧全打 ──
+{
+    var s = new CombatState(new RngSet("c3-allin"));
+    var infanta = new Player("Infanta", 80);
+    s.AddPlayer(infanta);
+    var sentry = CombatCmd.SpawnEnemy(s, ModelRegistry.New<QuietusSentry>());
+    await CombatCmd.StartCombat(s, infanta);
+    var pcs = infanta.PlayerCombatState!;
+    for (int i = 0; i < 3; i++) pcs.Hand.AddInternal(s.CreateCard<Attack>(infanta));
+    var allin = s.CreateCard<AllIn>(infanta); pcs.Hand.AddInternal(allin);
+    int h0 = sentry.CurrentHp;
+    await CardCmd.Play(s, allin, sentry);                           // 能量账:2 ✓ 血条账:27<44 ✓
+    Check(h0 - sentry.CurrentHp == 27 && pcs.ExhaustPile.Count == 4 && pcs.Hand.Count == 0,
+        "孤注:烧 3 张打 3×9=27,含自耗共 4 进消耗堆(不弹选择器)");
+}
+
+// ── 油库引爆:燃料加倍/非燃料抵命 ──
+{
+    var s = new CombatState(new RngSet("c3-keg"));
+    var infanta = new Player("Infanta", 80);
+    s.AddPlayer(infanta);
+    CombatCmd.SpawnEnemy(s, ModelRegistry.New<QuietusSentry>());
+    await CombatCmd.StartCombat(s, infanta);
+    var pcs = infanta.PlayerCombatState!;
+    for (int i = 0; i < 6; i++) pcs.DrawPile.AddInternal(s.CreateCard<Attack>(infanta));
+    var wood = s.CreateCard<Cordwood>(infanta); pcs.Hand.AddInternal(wood);
+    var atk = s.CreateCard<Attack>(infanta); pcs.Hand.AddInternal(atk);
+    var keg = s.CreateCard<Powderkeg>(infanta); pcs.Hand.AddInternal(keg);
+
+    using (CardSelectCmd.UseSelector(new ScriptedCardSelector().Then(pool => pool.ToList())))
+    {
+        await CardCmd.Play(s, keg, null);                           // 能量账:1 ✓ 全选两张
+        Check(pcs.Hand.Count == 6, "薪柴燃料 1 原生 + 2 额外 = 抽 6", $"手 {pcs.Hand.Count}");
+        Check(infanta.Creature.CurrentHp == 79, "非燃料的攻击牌:抵命 1(走管线)", $"hp {infanta.Creature.CurrentHp}");
+        Check(pcs.ExhaustPile.Count == 2 && pcs.DrawPile.Count == 0, "两张都进消耗堆,抽牌堆抽干");
+    }
+}
+
+// ── 爆燃(双敌全体) / 火海 / 油焰引爆 ──
+{
+    var s = new CombatState(new RngSet("c3-flash"));
+    var infanta = new Player("Infanta", 80);
+    s.AddPlayer(infanta);
+    var e1 = CombatCmd.SpawnEnemy(s, ModelRegistry.New<QuietusSentry>());
+    var e2 = CombatCmd.SpawnEnemy(s, ModelRegistry.New<QuietusSentry>());
+    await CombatCmd.StartCombat(s, infanta);
+    var pcs = infanta.PlayerCombatState!;
+    var s1 = s.CreateCard<Attack>(infanta); pcs.Hand.AddInternal(s1);
+    var s2c = s.CreateCard<Attack>(infanta); pcs.Hand.AddInternal(s2c);
+    var fo = s.CreateCard<Flashover>(infanta); pcs.Hand.AddInternal(fo);
+    int h1 = e1.CurrentHp, h2 = e2.CurrentHp;
+    await CardCmd.Play(s, fo, null);                                // 能量账:2 ✓
+    Check(h1 - e1.CurrentHp == 19 && h2 - e2.CurrentHp == 19, "爆燃:全体各 19");
+    Check(pcs.DiscardPile.Cards.Count(c => c is Ember) == 2, "余烬 2 入弃牌堆");
+    Check(pcs.ExhaustPile.Count == 2, "焚毁 2(池=min 自动)");
+}
+
+{
+    var s = new CombatState(new RngSet("c3-sea"));
+    var infanta = new Player("Infanta", 80);
+    s.AddPlayer(infanta);
+    var sentry = CombatCmd.SpawnEnemy(s, ModelRegistry.New<QuietusSentry>());
+    await CombatCmd.StartCombat(s, infanta);
+    var pcs = infanta.PlayerCombatState!;
+    var s1 = s.CreateCard<Attack>(infanta); pcs.Hand.AddInternal(s1);
+    var s2c = s.CreateCard<Attack>(infanta); pcs.Hand.AddInternal(s2c);
+    var sea = s.CreateCard<SeaOfFire>(infanta); pcs.Hand.AddInternal(sea);
+    await CardCmd.Play(s, sea, null);                               // 能量账:2 ✓
+    Check(sentry.GetBuff<SearBuff>() is { Amount: 6, Level: 3 }, "火海:6 层 + 提Ⅱ = Ⅲ级·6层(裁定5:0级起步)");
+
+    var oil = s.CreateCard<OilFlash>(infanta); pcs.Hand.AddInternal(oil);
+    int h0 = sentry.CurrentHp;
+    await CardCmd.Play(s, oil, sentry);                             // 能量账:0 ✓
+    Check(h0 - sentry.CurrentHp == 21, "油焰引爆:1+6=7 段 × ⌊2×1.75⌋=3 → 21(逐段取整)", $"{h0 - sentry.CurrentHp}");
+
+    pcs.DrawPile.AddInternal(s.CreateCard<Attack>(infanta));
+    pcs.DrawPile.AddInternal(s.CreateCard<Attack>(infanta));
+    await CardPileCmd.Exhaust(s, oil);                              // 从弃牌堆点燃
+    Check(pcs.Hand.Count == 2 && sentry.GetBuff<SearBuff>()!.Amount == 9,
+        "油焰燃料:抽 2 + 全体 +3 层(6→9)");
+}
+
+// ── 火山灰 / 灰烬护盾 / 借火(能量账重点) ──
+{
+    var s = new CombatState(new RngSet("c3-ember3"));
+    var infanta = new Player("Infanta", 80);
+    s.AddPlayer(infanta);
+    var sentry = CombatCmd.SpawnEnemy(s, ModelRegistry.New<QuietusSentry>());
+    await CombatCmd.StartCombat(s, infanta);
+    var pcs = infanta.PlayerCombatState!;
+    var te = s.CreateCard<Tephra>(infanta); pcs.Hand.AddInternal(te);
+    var ash = s.CreateCard<AshShield>(infanta); pcs.Hand.AddInternal(ash);
+    var al = s.CreateCard<ALight>(infanta); pcs.Hand.AddInternal(al);
+    int h0 = sentry.CurrentHp;
+    await CardCmd.Play(s, te, sentry);
+    await CardCmd.Play(s, ash, null);
+    await CardCmd.Play(s, al, null);                                // 能量账:0+1+0,借火回 1 → 净 3
+    Check(h0 - sentry.CurrentHp == 9, "火山灰:9");
+    Check(infanta.Creature.Block == 11, "灰烬护盾:11");
+    Check(pcs.Energy == 3, "借火:3-1+1=3(能量动词走 CombatCmd.GainEnergy)");
+    Check(pcs.DiscardPile.Cards.Count(c => c is Ember) == 4, "余烬账:2+1+1=4 全进弃牌堆");
+}
+
+// ── 余烬倾泻 / 灰飞烟灭 ──
+{
+    var s = new CombatState(new RngSet("c3-ashfall"));
+    var infanta = new Player("Infanta", 80);
+    s.AddPlayer(infanta);
+    var sentry = CombatCmd.SpawnEnemy(s, ModelRegistry.New<QuietusSentry>());
+    await CombatCmd.StartCombat(s, infanta);
+    var pcs = infanta.PlayerCombatState!;
+    var af = s.CreateCard<Ashfall>(infanta); pcs.Hand.AddInternal(af);
+    int h0 = sentry.CurrentHp;
+    await CardCmd.Play(s, af, null);                                // 能量账:2 ✓ 血条账:28<44 ✓
+    Check(h0 - sentry.CurrentHp == 28, "余烬倾泻:全体 28");
+    Check(pcs.Hand.Count == 10 && pcs.Hand.Cards.All(c => c is Ember), "手牌填满:10 张全是余烬");
+}
+
+{
+    var s = new CombatState(new RngSet("c3-smoke"));
+    var infanta = new Player("Infanta", 80);
+    s.AddPlayer(infanta);
+    var sentry = CombatCmd.SpawnEnemy(s, ModelRegistry.New<QuietusSentry>());
+    await CombatCmd.StartCombat(s, infanta);
+    var pcs = infanta.PlayerCombatState!;
+    pcs.Hand.AddInternal(s.CreateCard<Ember>(infanta));
+    pcs.Hand.AddInternal(s.CreateCard<Ember>(infanta));
+    var keep = s.CreateCard<Attack>(infanta); pcs.Hand.AddInternal(keep);
+    var uis = s.CreateCard<UpInSmoke>(infanta); pcs.Hand.AddInternal(uis);
+    int h0 = sentry.CurrentHp;
+    await CardCmd.Play(s, uis, null);                               // 能量账:2 ✓ 无指向卡,target=null
+    Check(h0 - sentry.CurrentHp == 16 && pcs.ExhaustPile.Count == 2 && keep.Pile == pcs.Hand,
+        "灰飞烟灭:吃 2 干扰 → 2×8=16(随机靶=独苗),攻击牌不动");
+}
+
+// ── 引火索 / 薪柴 / 油脂弹×掷火 / 不熄之炬 / 薪火长明 ──
+{
+    var s = new CombatState(new RngSet("c3-fuse"));
+    var infanta = new Player("Infanta", 80);
+    s.AddPlayer(infanta);
+    var sentry = CombatCmd.SpawnEnemy(s, ModelRegistry.New<QuietusSentry>());
+    await CombatCmd.StartCombat(s, infanta);
+    var pcs = infanta.PlayerCombatState!;
+    var fuse = s.CreateCard<Fuse>(infanta); pcs.Hand.AddInternal(fuse);
+    int h0 = sentry.CurrentHp;
+    await CardCmd.Play(s, fuse, sentry);
+    await CardPileCmd.Exhaust(s, fuse);                             // 燃料:随机敌(独苗) 6
+    Check(h0 - sentry.CurrentHp == 12, "引火索:6 + 燃料 6(CombatTargets 流选独苗)");
+}
+
+{
+    var s = new CombatState(new RngSet("c3-wood"));
+    var infanta = new Player("Infanta", 80);
+    s.AddPlayer(infanta);
+    CombatCmd.SpawnEnemy(s, ModelRegistry.New<QuietusSentry>());
+    await CombatCmd.StartCombat(s, infanta);
+    var pcs = infanta.PlayerCombatState!;
+    for (int i = 0; i < 3; i++) pcs.DrawPile.AddInternal(s.CreateCard<Attack>(infanta));
+    var wood = s.CreateCard<Cordwood>(infanta); pcs.Hand.AddInternal(wood);
+    await CardCmd.Play(s, wood, null);
+    Check(pcs.Hand.Count == 1, "薪柴:抽 1");
+    await CardPileCmd.Exhaust(s, wood);
+    Check(pcs.Hand.Count == 3, "薪柴燃料:再抽 2");
+}
+
+{
+    var s = new CombatState(new RngSet("c3-grease"));
+    var infanta = new Player("Infanta", 80);
+    s.AddPlayer(infanta);
+    var sentry = CombatCmd.SpawnEnemy(s, ModelRegistry.New<QuietusSentry>());
+    await CombatCmd.StartCombat(s, infanta);
+    var pcs = infanta.PlayerCombatState!;
+    var gp = s.CreateCard<GreasePot>(infanta); pcs.Hand.AddInternal(gp);
+    var sac1 = s.CreateCard<Attack>(infanta); pcs.Hand.AddInternal(sac1);
+    var sac2 = s.CreateCard<Attack>(infanta); pcs.Hand.AddInternal(sac2);
+    var tf = s.CreateCard<ThrowFire>(infanta); pcs.Hand.AddInternal(tf);
+
+    int h0 = sentry.CurrentHp;
+    await CardCmd.Play(s, gp, sentry);                              // 6 伤 + 4 盾
+    await CardPileCmd.Exhaust(s, gp);                               // 燃料:油脂 1 层
+    Check(infanta.Creature.GetBuffAmount<GreasePotBuff>() == 1 && infanta.Creature.Block == 4,
+        "油脂弹:6/4盾,燃料挂 1 层油脂");
+
+    using (CardSelectCmd.UseSelector(new ScriptedCardSelector()))   // 第一发焚毁池 2 张须选;第二发池 1 自动
+    {
+        await CardCmd.Play(s, tf, sentry);                          // 能量账:1+1=2 ✓
+        Check(h0 - sentry.CurrentHp == 6 + 24, "油脂×掷火:整卡结算两次(12×2),共 30", $"{h0 - sentry.CurrentHp}");
+        Check(pcs.ExhaustPile.Count == 3, "两发各焚 1(sac1+sac2)+ 油脂弹自耗 = 3");
+        Check(infanta.Creature.GetBuff<GreasePotBuff>() == null, "油脂用后即焚:一层耗尽自灭(Duplication 自减)");
+        Check(pcs.PlayHistory.Count(r => r.Card == tf) == 2,
+            "史书逐轮记账:双发的掷火两条(STS2 双份账同义——女妖之嚎数临时牌,双发数两次)");
+        Check(s.Events.Entries.OfType<CardPlayStarted>().Count() == 3,
+            "开打事件:油脂弹1+掷火2=3(逐次节拍的外显)");
+    }
+}
+
+{
+    var s = new CombatState(new RngSet("c3-torch"));
+    var infanta = new Player("Infanta", 80);
+    s.AddPlayer(infanta);
+    var sentry = CombatCmd.SpawnEnemy(s, ModelRegistry.New<QuietusSentry>());
+    await CombatCmd.StartCombat(s, infanta);
+    var pcs = infanta.PlayerCombatState!;
+    await CombatCmd.GainEnergy(s, infanta, 1);                      // 能量账:2+2=4 → 3+1
+    var torch = s.CreateCard<UnquenchedTorch>(infanta); pcs.Hand.AddInternal(torch);
+    int h0 = sentry.CurrentHp;
+    await CardCmd.Play(s, torch, sentry);                           // 10
+    await CardPileCmd.Exhaust(s, torch);                            // 回手,10→20
+    Check(torch.Pile == pcs.Hand && torch.Vars.Damage.Int == 20, "不熄之炬:燃料回手,伤害翻倍");
+    await CardCmd.Play(s, torch, sentry);                           // 20
+    Check(h0 - sentry.CurrentHp == 30, "两轮共 10+20=30(血条账:30<44)", $"{h0 - sentry.CurrentHp}");
+    await CardPileCmd.Exhaust(s, torch);
+    Check(torch.Vars.Damage.Int == 40 && !torch.Vars.Damage.WasJustUpgraded,
+        "再翻到 40,本场可叠加;高亮标记已随手清掉(不污染升级预览)");
+}
+
+{
+    var s = new CombatState(new RngSet("c3-undying"));
+    var infanta = new Player("Infanta", 80);
+    s.AddPlayer(infanta);
+    CombatCmd.SpawnEnemy(s, ModelRegistry.New<QuietusSentry>());
+    await CombatCmd.StartCombat(s, infanta);
+    var pcs = infanta.PlayerCombatState!;
+    for (int i = 0; i < 5; i++) pcs.DrawPile.AddInternal(s.CreateCard<Attack>(infanta));
+    var uf = s.CreateCard<UndyingFlame>(infanta); pcs.Hand.AddInternal(uf);
+    var wood = s.CreateCard<Cordwood>(infanta); pcs.Hand.AddInternal(wood);
+    await CardCmd.Play(s, uf, null);                                // 永续:limbo + 本体上身
+    Check(uf.Pile == null && infanta.Creature.GetBuffAmount<UndyingFlameAura>() == 1,
+        "薪火长明:卡入 limbo,本体挂玩家");
+    await CardCmd.Play(s, wood, null);                              // 抽 1
+    await CardPileCmd.Exhaust(s, wood);                             // 原生 2 + 长明加班 2
+    Check(pcs.Hand.Count == 5, "燃料翻倍:1 + 2 + 2 = 5 张在手", $"手 {pcs.Hand.Count}");
+}
+
+// ── 狂涌 / 狂战 / 无双乱舞(S2 实战) ──
+{
+    var s = new CombatState(new RngSet("c3-surge"));
+    var infanta = new Player("Infanta", 80);
+    s.AddPlayer(infanta);
+    var sentry = CombatCmd.SpawnEnemy(s, ModelRegistry.New<QuietusSentry>());
+    await CombatCmd.StartCombat(s, infanta);
+    var pcs = infanta.PlayerCombatState!;
+    await BuffCmd.Apply<SearBuff>(s, sentry, 1, null);
+    await BuffCmd.RaiseSearLevel(s, sentry, 2, null);               // Ⅲ级
+    var surge = s.CreateCard<Surge>(infanta); pcs.Hand.AddInternal(surge);
+    Check(surge.Cost == 0, "狂涌:3 − 全场最高等级Ⅲ = 0(预览=结算同源)");
+    int h0 = sentry.CurrentHp;
+    await CardCmd.Play(s, surge, sentry);
+    Check(h0 - sentry.CurrentHp == 21 && pcs.Energy == 3,
+        "狂涌 0 费打出:12×1.75=21,能量分文未动", $"{h0 - sentry.CurrentHp}/能量{pcs.Energy}");
+    Check(infanta.Creature.GetBuffAmount<StrengthBuff>() == 1, "+1 力");
+}
+
+{
+    var s = new CombatState(new RngSet("c3-frenzy"));
+    var infanta = new Player("Infanta", 80);
+    s.AddPlayer(infanta);
+    var sentry = CombatCmd.SpawnEnemy(s, ModelRegistry.New<QuietusSentry>());
+    await CombatCmd.StartCombat(s, infanta);
+    var pcs = infanta.PlayerCombatState!;
+    var atk = s.CreateCard<Attack>(infanta); pcs.Hand.AddInternal(atk);
+    var fz = s.CreateCard<Frenzy>(infanta); pcs.Hand.AddInternal(fz);
+    await CardCmd.Play(s, fz, null);                                // 能量账:2
+    Check(atk.Cost == 0, "狂战:攻击牌本回合 1→0");
+    int h0 = sentry.CurrentHp;
+    await CardCmd.Play(s, atk, sentry);                             // 免费
+    Check(h0 - sentry.CurrentHp == 9 && pcs.Energy == 1, "0 费打出:6+3力=9,能量剩 1");
+    await CombatCmd.EndPlayerTurn(s, infanta);
+    Check(atk.Cost == 1, "回合落幕:狂战的折扣随 EndOfTurnCleanup 过期");
+}
+
+{
+    var s = new CombatState(new RngSet("c3-onslaught"));
+    var infanta = new Player("Infanta", 80);
+    s.AddPlayer(infanta);
+    var sentry = CombatCmd.SpawnEnemy(s, ModelRegistry.New<QuietusSentry>());
+    await CombatCmd.StartCombat(s, infanta);
+    var pcs = infanta.PlayerCombatState!;
+    var on = s.CreateCard<Onslaught>(infanta); pcs.Hand.AddInternal(on);
+    Check(on.Cost == 20, "无双乱舞素体:20 费(裁定10)");
+    for (int i = 0; i < 5; i++)
+    {
+        var w = s.CreateCard<Tailwind>(infanta);
+        pcs.Hand.AddInternal(w);
+        await CardCmd.Play(s, w, null);                             // 5 张 0 费进史书
+    }
+    Check(on.Cost == 15, "全场打过 5 张:20−5=15(费用随史书滑落)");
+    await CombatCmd.GainEnergy(s, infanta, 12);                     // 能量账:3+12=15
+    int h0 = sentry.CurrentHp;
+    await CardCmd.Play(s, on, sentry);
+    Check(h0 - sentry.CurrentHp == 39,
+        "6 段(1+本回合5,不含自身)伤害滚力量:4+5+6+7+8+9=39(微裁定3,血条账:39<44)", $"{h0 - sentry.CurrentHp}");
+    Check(infanta.Creature.GetBuffAmount<StrengthBuff>() == 6 && pcs.Energy == 0, "+6 力,能量 15 花光");
+}
+
+// ── 公式三张(微裁定1 的账) ──
+{
+    var s = new CombatState(new RngSet("c3-cookoff"));
+    var infanta = new Player("Infanta", 80);
+    s.AddPlayer(infanta);
+    var sentry = CombatCmd.SpawnEnemy(s, ModelRegistry.New<QuietusSentry>());
+    await CombatCmd.StartCombat(s, infanta);
+    var pcs = infanta.PlayerCombatState!;
+    await BuffCmd.Apply<SearBuff>(s, sentry, 4, null);
+    await BuffCmd.RaiseSearLevel(s, sentry, 1, null);               // {4,Ⅱ}
+    var s1 = s.CreateCard<Attack>(infanta); pcs.Hand.AddInternal(s1);
+    var s2c = s.CreateCard<Attack>(infanta); pcs.Hand.AddInternal(s2c);
+    var cook = s.CreateCard<CookOff>(infanta); pcs.Hand.AddInternal(cook);
+    int h0 = sentry.CurrentHp;
+    await CardCmd.Play(s, cook, sentry);                            // 能量账:2 ✓
+    Check(h0 - sentry.CurrentHp == 37,
+        "殉爆{4,Ⅱ}:基础 5+4×(4+2−1)=25,管线再乘 ×1.5 → 37(公式伤照吃乘算,微裁定1)", $"{h0 - sentry.CurrentHp}");
+    Check(pcs.ExhaustPile.Count == 2, "焚毁 2");
+}
+
+{
+    var s = new CombatState(new RngSet("c3-cookoff2"));
+    var infanta = new Player("Infanta", 80);
+    s.AddPlayer(infanta);
+    var sentry = CombatCmd.SpawnEnemy(s, ModelRegistry.New<QuietusSentry>());
+    await CombatCmd.StartCombat(s, infanta);
+    var pcs = infanta.PlayerCombatState!;
+    await BuffCmd.Apply<SearBuff>(s, sentry, 2, null);              // {2,Ⅰ}
+    var cook = s.CreateCard<CookOff>(infanta);
+    cook.Upgrade();
+    pcs.Hand.AddInternal(cook);
+    Check(cook.Describe().Contains("巨额"), "殉爆+:文案跳档到巨额");
+    int h0 = sentry.CurrentHp;
+    await CardCmd.Play(s, cook, sentry);
+    Check(h0 - sentry.CurrentHp == 17, "巨额{2,Ⅰ}:(5+2×1)×2=14,×1.25 → 17", $"{h0 - sentry.CurrentHp}");
+}
+
+{
+    var s = new CombatState(new RngSet("c3-conflag"));
+    var infanta = new Player("Infanta", 80);
+    s.AddPlayer(infanta);
+    var sentry = CombatCmd.SpawnEnemy(s, ModelRegistry.New<QuietusSentry>());
+    await CombatCmd.StartCombat(s, infanta);
+    var pcs = infanta.PlayerCombatState!;
+    await BuffCmd.Apply<StrengthBuff>(s, infanta.Creature, 2, null);
+    await BuffCmd.Apply<SearBuff>(s, sentry, 2, null);
+    await BuffCmd.RaiseSearLevel(s, sentry, 1, null);               // {2,Ⅱ}
+    var cf = s.CreateCard<Conflagration>(infanta); pcs.Hand.AddInternal(cf);
+    int h0 = sentry.CurrentHp;
+    await CardCmd.Play(s, cf, sentry);                              // 能量账:3 ✓
+    Check(h0 - sentry.CurrentHp == 37,
+        "狂炎引爆:基础(15+4×2力)=23,管线 +2力 → 25,×1.5 → 37——力量合计 5 倍(卡面明言)", $"{h0 - sentry.CurrentHp}");
+    Check(cf.Pile == pcs.ExhaustPile, "消耗");
+}
+
+{
+    var s = new CombatState(new RngSet("c3-cleanse"));
+    var infanta = new Player("Infanta", 80);
+    s.AddPlayer(infanta);
+    var sentry = CombatCmd.SpawnEnemy(s, ModelRegistry.New<QuietusSentry>());
+    await CombatCmd.StartCombat(s, infanta);
+    var pcs = infanta.PlayerCombatState!;
+    await BuffCmd.Apply<SearBuff>(s, sentry, 2, null);
+    await BuffCmd.RaiseSearLevel(s, sentry, 1, null);               // {2,Ⅱ}
+    var cl = s.CreateCard<CleansingFire>(infanta); pcs.Hand.AddInternal(cl);
+    int h0 = sentry.CurrentHp;
+    await CardCmd.Play(s, cl, sentry);
+    Check(h0 - sentry.CurrentHp == 30 && !sentry.HasBuff<SearBuff>(),
+        "火焰净化:巨额 2×15=30 素伤(灼伤先被吃掉→乘算天然不吃),灼伤蒸发", $"{h0 - sentry.CurrentHp}");
+
+    var cl2 = s.CreateCard<CleansingFire>(infanta);
+    cl2.Upgrade();
+    Check(!cl2.HasKeyword(CardKeyword.Exhaust), "净化+:去「消耗」");
+}
+
+// ── 镜炎(裁定6:叠层取高) ──
+{
+    var s = new CombatState(new RngSet("c3-mirror"));
+    var infanta = new Player("Infanta", 80);
+    s.AddPlayer(infanta);
+    var ea = CombatCmd.SpawnEnemy(s, ModelRegistry.New<QuietusSentry>());
+    var eb = CombatCmd.SpawnEnemy(s, ModelRegistry.New<QuietusSentry>());
+    await CombatCmd.StartCombat(s, infanta);
+    var pcs = infanta.PlayerCombatState!;
+    await BuffCmd.Apply<SearBuff>(s, ea, 3, null);
+    await BuffCmd.RaiseSearLevel(s, ea, 1, null);                   // A:{3,Ⅱ}
+    await BuffCmd.Apply<WeakenBuff>(s, ea, 2, null);
+    await BuffCmd.Apply<SearBuff>(s, eb, 1, null);
+    await BuffCmd.RaiseSearLevel(s, eb, 2, null);                   // B:{1,Ⅲ}
+    var mf = s.CreateCard<Mirrorflame>(infanta); pcs.Hand.AddInternal(mf);
+    int hA = ea.CurrentHp;
+    await CardCmd.Play(s, mf, ea);                                  // 能量账:0 ✓
+    Check(hA - ea.CurrentHp == 9, "镜炎对 A:6×1.5(A 自己的Ⅱ)=9", $"{hA - ea.CurrentHp}");
+    Check(eb.GetBuff<SearBuff>() is { Amount: 4, Level: 3 },
+        "B 收到镜像:层数 1+3=4 叠加,等级 max(Ⅲ,Ⅱ)=Ⅲ 取高(裁定6)");
+    Check(eb.GetBuffAmount<WeakenBuff>() == 2, "弱化 2 也照进 B(全部负面)");
+    Check(ea.GetBuff<SearBuff>() is { Amount: 3, Level: 2 }, "A 自身不动(镜子不回照)");
+}
+
+// ── 背水狂炎(珊瑚钳位全链) ──
+{
+    var s = new CombatState(new RngSet("c3-laststand"));
+    var infanta = new Player("Infanta", 80);
+    s.AddPlayer(infanta);
+    CombatCmd.SpawnEnemy(s, ModelRegistry.New<QuietusSentry>());
+    await CombatCmd.StartCombat(s, infanta);
+    var pcs = infanta.PlayerCombatState!;
+    var ls = s.CreateCard<LastStand>(infanta); pcs.Hand.AddInternal(ls);
+    await CardCmd.Play(s, ls, null);                                // 能量账:1 ✓
+    Check(infanta.Creature.CurrentHp == 60, "语序照卡面:先裸失 20(挂反会挡自己入场费)", $"hp {infanta.Creature.CurrentHp}");
+
+    await CreatureCmd.Damage(s, null, new[] { infanta.Creature }, 10m, ValueProp.Move, null);
+    Check(infanta.Creature.CurrentHp == 60, "管线伤 10 → 钳成 0:生命不会降低");
+    await CreatureCmd.LoseHp(s, infanta.Creature, 5);
+    Check(infanta.Creature.CurrentHp == 60, "裸掉血 5 → 也钳成 0(LoseHp 新针,珊瑚同层)");
+
+    await Hook.AfterTurnStarted(s, CombatSide.Player);              // 你的下回合开始
+    Check(infanta.Creature.GetBuff<LastStandBuff>() == null, "钟响:背水撤场");
+    await CreatureCmd.LoseHp(s, infanta.Creature, 5);
+    Check(infanta.Creature.CurrentHp == 55, "保护结束,血债照付", $"hp {infanta.Creature.CurrentHp}");
+
+    var ls2 = s.CreateCard<LastStand>(infanta);
+    ls2.Upgrade();
+    Check(ls2.Vars["Loss"].Int == 15, "背水+:失 20→15");
+}
+
+// ── 燎原 / 火神领域(附带流水线) ──
+{
+    var s = new CombatState(new RngSet("c3-firestorm"));
+    var infanta = new Player("Infanta", 80);
+    s.AddPlayer(infanta);
+    var sentry = CombatCmd.SpawnEnemy(s, ModelRegistry.New<QuietusSentry>());
+    await CombatCmd.StartCombat(s, infanta);
+    var pcs = infanta.PlayerCombatState!;
+    pcs.DrawPile.AddInternal(s.CreateCard<Attack>(infanta));
+    var fs = s.CreateCard<Firestorm>(infanta); pcs.Hand.AddInternal(fs);
+    var em = s.CreateCard<Ember>(infanta); pcs.Hand.AddInternal(em);
+    await CardCmd.Play(s, fs, null);                                // 能量账:2
+    Check(em.Cost == 0, "燎原:余烬 1→0 费(全局费用钩)");
+    int h0 = sentry.CurrentHp;
+    await CardCmd.Play(s, em, null);                                // 免费打出
+    Check(h0 - sentry.CurrentHp == 5 && pcs.Hand.Count == 1,
+        "余烬附带:5 伤(随机靶=独苗)+ 抽 1(微裁定2)");
+    Check(em.Pile == pcs.ExhaustPile, "余烬本性不变:打出即耗");
+}
+
+{
+    var s = new CombatState(new RngSet("c3-domain"));
+    var infanta = new Player("Infanta", 80);
+    s.AddPlayer(infanta);
+    var sentry = CombatCmd.SpawnEnemy(s, ModelRegistry.New<QuietusSentry>());
+    await CombatCmd.StartCombat(s, infanta);
+    var pcs = infanta.PlayerCombatState!;
+    pcs.DrawPile.AddInternal(s.CreateCard<Attack>(infanta));
+    pcs.DrawPile.AddInternal(s.CreateCard<Attack>(infanta));
+    var d1 = s.CreateCard<Dash>(infanta); pcs.Hand.AddInternal(d1);
+    var d2 = s.CreateCard<Dash>(infanta); pcs.Hand.AddInternal(d2);
+    var fd = s.CreateCard<FiregodsDomain>(infanta); pcs.Hand.AddInternal(fd);
+
+    await CardCmd.Play(s, fd, null);                            // 能量账:3 ✓
+    Check(infanta.Creature.GetBuffAmount<StrengthBuff>() == 0 && pcs.ExhaustPile.Count == 0
+          && !sentry.HasBuff<SearBuff>() && pcs.Hand.Count == 2,
+        "领域开张不自触发(裁定13:起点不在场,登记簿无名——群蛇形态判例)");
+
+    int h0 = sentry.CurrentHp;
+    await CardCmd.Play(s, d2, sentry);                          // 0 费;焚毁池=唯一的 d1,自动路,零选择器
+    Check(h0 - sentry.CurrentHp == 5, "突进:3+2×1(领域那张),素 5——灼伤在触发里、伤害之后", $"{h0 - sentry.CurrentHp}");
+    Check(infanta.Creature.GetBuffAmount<StrengthBuff>() == 1 && pcs.ExhaustPile.Count == 1
+          && sentry.GetBuff<SearBuff>() is { Amount: 1, Level: 1 } && pcs.Hand.Count == 1,
+        "第一拍流水线:焚 1(d1)/抽 1/+1 力/独苗 1 层灼");
+
+    await CombatCmd.GainEnergy(s, infanta, 3);                  // 能量账:第二张领域的 3 费
+    var fd2 = s.CreateCard<FiregodsDomain>(infanta); pcs.Hand.AddInternal(fd2);
+    await CardCmd.Play(s, fd2, null);
+    Check(infanta.Creature.GetBuffAmount<StrengthBuff>() == 2 && pcs.ExhaustPile.Count == 2
+          && sentry.GetBuff<SearBuff>()!.Amount == 2
+          && infanta.Creature.GetBuffAmount<FiregodDomainAura>() == 2,
+        "第二张领域:旧的一层照常触发(起点在场),且按起点快照×1 而非合并后×2;本体叠到 2 层");
+}
+
+// ── 升级収尾抽查(本批余下诸卡) ──
+{
+    var s = new CombatState(new RngSet("c3-upg"));
+    var infanta = new Player("Infanta", 80);
+    s.AddPlayer(infanta);
+
+    var t = s.CreateCard<Tinder>(infanta); t.Upgrade();
+    Check(t.Vars["Cards"].Int == 2, "焚牌+:抽 1→2");
+    var tf = s.CreateCard<ThrowFire>(infanta); tf.Upgrade();
+    Check(tf.Vars.Damage.Int == 15, "掷火+:12→15");
+    var fu = s.CreateCard<FireUp>(infanta); fu.Upgrade();
+    Check(fu.Vars["Bonus"].Int == 2, "蓄力+:额外 1→2");
+    var ai = s.CreateCard<AllIn>(infanta); ai.Upgrade();
+    Check(ai.Vars.Damage.Int == 12, "孤注+:9→12");
+    var pk = s.CreateCard<Powderkeg>(infanta); pk.Upgrade();
+    Check(pk.Cost == 0, "油库引爆+:1→0 费");
+    var fo = s.CreateCard<Flashover>(infanta); fo.Upgrade();
+    Check(fo.Vars.Damage.Int == 24, "爆燃+:19→24");
+    var sea = s.CreateCard<SeaOfFire>(infanta); sea.Upgrade();
+    Check(sea.Vars["Sear"].Int == 9, "火海+:6→9");
+    var of2 = s.CreateCard<OilFlash>(infanta); of2.Upgrade();
+    Check(of2.Vars.Damage.Int == 3, "油焰引爆+:2→3");
+    var te = s.CreateCard<Tephra>(infanta); te.Upgrade();
+    Check(te.Vars.Damage.Int == 12, "火山灰+:9→12");
+    var ash = s.CreateCard<AshShield>(infanta); ash.Upgrade();
+    Check(ash.Vars["Shield"].Int == 14, "灰烬护盾+:11→14");
+    var al = s.CreateCard<ALight>(infanta); al.Upgrade();
+    Check(al.HasKeyword(CardKeyword.Retain), "借火+:加「保留」");
+    var af = s.CreateCard<Ashfall>(infanta); af.Upgrade();
+    Check(af.Vars.Damage.Int == 34, "余烬倾泻+:28→34");
+    var uis = s.CreateCard<UpInSmoke>(infanta); uis.Upgrade();
+    Check(uis.Vars.Damage.Int == 11, "灰飞烟灭+:8→11");
+    var fst = s.CreateCard<Firestorm>(infanta); fst.Upgrade();
+    Check(fst.Cost == 1, "燎原+:2→1 费");
+    var fz = s.CreateCard<Frenzy>(infanta); fz.Upgrade();
+    Check(fz.Vars["Str"].Int == 4, "狂战+:3→4 力");
+    var on = s.CreateCard<Onslaught>(infanta); on.Upgrade();
+    Check(on.Cost == 15, "无双乱舞+:20→15(素体口径,无史书)");
+    var mf = s.CreateCard<Mirrorflame>(infanta); mf.Upgrade();
+    Check(mf.Vars.Damage.Int == 9, "镜炎+:6→9");
+    var fe = s.CreateCard<Fuse>(infanta); fe.Upgrade();
+    Check(fe.Vars.Damage.Int == 9 && fe.Vars["FuelDamage"].Int == 9, "引火索+:6/6→9/9");
+    var cw = s.CreateCard<Cordwood>(infanta); cw.Upgrade();
+    Check(cw.HasKeyword(CardKeyword.Retain), "薪柴+:加「保留」");
+    var gp = s.CreateCard<GreasePot>(infanta); gp.Upgrade();
+    Check(gp.HasKeyword(CardKeyword.Retain), "油脂弹+:加「保留」");
+    var ut = s.CreateCard<UnquenchedTorch>(infanta); ut.Upgrade();
+    Check(ut.HasKeyword(CardKeyword.Retain), "不熄之炬+:加「保留」");
+    var udf = s.CreateCard<UndyingFlame>(infanta); udf.Upgrade();
+    Check(udf.HasKeyword(CardKeyword.Innate), "薪火长明+:加「本能」");
+    var fdm = s.CreateCard<FiregodsDomain>(infanta); fdm.Upgrade();
+    Check(fdm.HasKeyword(CardKeyword.Innate), "火神领域+:加「本能」");
+    var sg = s.CreateCard<Surge>(infanta); sg.Upgrade();
+    Check(sg.Vars.Damage.Int == 15, "狂涌+:12→15");
+    var cfl = s.CreateCard<Conflagration>(infanta); cfl.Upgrade();
+    Check(cfl.Cost == 2, "狂炎引爆+:3→2 费");
 }
 Console.WriteLine(failures == 0 ? "全部通过 ✔" : $"{failures} 条断言失败 ✘");
 return failures == 0 ? 0 : 1;

@@ -1,0 +1,604 @@
+[gd_scene load_steps=20 format=3 uid="uid://bq4pdfassdq1x"]
+
+[ext_resource type="Texture2D" path="res://assets/winterfort-2.png" id="1_bg"]
+[ext_resource type="Texture2D" path="res://assets/icey.png" id="2_icey"]
+[ext_resource type="Texture2D" path="res://assets/pyra-2.png" id="3_pyra2"]
+[ext_resource type="Texture2D" path="res://assets/enemy-1.png" id="4_enemy"]
+[ext_resource type="Script" path="res://scripts/ui/battle_scene.gd" id="5_battle_scene"]
+
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_hud"]
+bg_color = Color(0.025, 0.028, 0.03, 0.42)
+border_width_left = 1
+border_width_top = 1
+border_width_right = 1
+border_width_bottom = 1
+border_color = Color(0.8, 0.8, 0.78, 0.35)
+corner_radius_top_left = 6
+corner_radius_top_right = 6
+corner_radius_bottom_right = 6
+corner_radius_bottom_left = 6
+
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_card"]
+bg_color = Color(0.025, 0.027, 0.028, 0.74)
+border_width_left = 1
+border_width_top = 1
+border_width_right = 1
+border_width_bottom = 1
+border_color = Color(0.8, 0.82, 0.76, 0.48)
+corner_radius_top_left = 7
+corner_radius_top_right = 7
+corner_radius_bottom_right = 7
+corner_radius_bottom_left = 7
+
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_cost_badge"]
+bg_color = Color(0.45, 0.39, 0.86, 1)
+corner_radius_top_left = 16
+corner_radius_top_right = 16
+corner_radius_bottom_right = 16
+corner_radius_bottom_left = 16
+
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_energy"]
+bg_color = Color(0.05, 0.046, 0.09, 0.82)
+border_width_left = 3
+border_width_top = 3
+border_width_right = 3
+border_width_bottom = 3
+border_color = Color(0.35, 0.27, 0.93, 0.88)
+corner_radius_top_left = 52
+corner_radius_top_right = 52
+corner_radius_bottom_right = 52
+corner_radius_bottom_left = 52
+
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_pile"]
+bg_color = Color(0.035, 0.036, 0.038, 0.7)
+border_width_left = 1
+border_width_top = 1
+border_width_right = 1
+border_width_bottom = 1
+border_color = Color(0.82, 0.82, 0.78, 0.52)
+corner_radius_top_left = 5
+corner_radius_top_right = 5
+corner_radius_bottom_right = 5
+corner_radius_bottom_left = 5
+
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_button_normal"]
+bg_color = Color(0.055, 0.058, 0.06, 0.86)
+border_width_left = 1
+border_width_top = 1
+border_width_right = 1
+border_width_bottom = 1
+border_color = Color(0.78, 0.78, 0.72, 0.5)
+corner_radius_top_left = 7
+corner_radius_top_right = 7
+corner_radius_bottom_right = 7
+corner_radius_bottom_left = 7
+
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_button_hover"]
+bg_color = Color(0.08, 0.082, 0.085, 0.9)
+border_width_left = 1
+border_width_top = 1
+border_width_right = 1
+border_width_bottom = 1
+border_color = Color(0.9, 0.9, 0.84, 0.65)
+corner_radius_top_left = 7
+corner_radius_top_right = 7
+corner_radius_bottom_right = 7
+corner_radius_bottom_left = 7
+
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_purple_circle"]
+bg_color = Color(0.48, 0.42, 0.9, 1)
+corner_radius_top_left = 26
+corner_radius_top_right = 26
+corner_radius_bottom_right = 26
+corner_radius_bottom_left = 26
+
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_intent_slot"]
+bg_color = Color(0.06, 0.025, 0.025, 0.35)
+border_width_left = 1
+border_width_top = 1
+border_width_right = 1
+border_width_bottom = 1
+border_color = Color(0.95, 0.18, 0.18, 0.75)
+corner_radius_top_left = 5
+corner_radius_top_right = 5
+corner_radius_bottom_right = 5
+corner_radius_bottom_left = 5
+
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_bar_bg"]
+bg_color = Color(0.02, 0.02, 0.022, 0.72)
+corner_radius_top_left = 5
+corner_radius_top_right = 5
+corner_radius_bottom_right = 5
+corner_radius_bottom_left = 5
+
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_hp_green"]
+bg_color = Color(0.08, 0.68, 0.52, 1)
+corner_radius_top_left = 5
+corner_radius_top_right = 5
+corner_radius_bottom_right = 5
+corner_radius_bottom_left = 5
+
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_hp_red"]
+bg_color = Color(0.94, 0.25, 0.28, 1)
+corner_radius_top_left = 5
+corner_radius_top_right = 5
+corner_radius_bottom_right = 5
+corner_radius_bottom_left = 5
+
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_status_slot"]
+bg_color = Color(0.02, 0.08, 0.075, 0.62)
+border_width_left = 1
+border_width_top = 1
+border_width_right = 1
+border_width_bottom = 1
+border_color = Color(0.16, 0.92, 0.72, 0.95)
+corner_radius_top_left = 4
+corner_radius_top_right = 4
+corner_radius_bottom_right = 4
+corner_radius_bottom_left = 4
+
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_transparent_target"]
+bg_color = Color(1, 1, 1, 0)
+
+[node name="Battle" type="Node2D"]
+script = ExtResource("5_battle_scene")
+
+[node name="World" type="Node2D" parent="."]
+
+[node name="Background" type="Sprite2D" parent="World"]
+z_index = -100
+position = Vector2(640, 360)
+scale = Vector2(0.7656, 0.7656)
+texture = ExtResource("1_bg")
+
+[node name="SpiritGroup" type="Node2D" parent="World"]
+
+[node name="SpiritSlot2Rear" type="Node2D" parent="World/SpiritGroup"]
+position = Vector2(205, 388)
+
+[node name="Portrait" type="Sprite2D" parent="World/SpiritGroup/SpiritSlot2Rear"]
+scale = Vector2(0.1887, 0.1887)
+texture = ExtResource("2_icey")
+
+[node name="SpiritSlot1Front" type="Node2D" parent="World/SpiritGroup"]
+z_index = 2
+position = Vector2(396, 371)
+
+[node name="Portrait" type="Sprite2D" parent="World/SpiritGroup/SpiritSlot1Front"]
+scale = Vector2(1.0096, 1.0096)
+texture = ExtResource("3_pyra2")
+
+[node name="EnemyGroup" type="Node2D" parent="World"]
+
+[node name="Enemy1" type="Node2D" parent="World/EnemyGroup"]
+z_index = 1
+position = Vector2(838, 400)
+
+[node name="Portrait" type="Sprite2D" parent="World/EnemyGroup/Enemy1"]
+scale = Vector2(0.184, 0.184)
+texture = ExtResource("4_enemy")
+
+[node name="Enemy2" type="Node2D" parent="World/EnemyGroup"]
+visible = false
+z_index = 2
+position = Vector2(1077, 401)
+
+[node name="Portrait" type="Sprite2D" parent="World/EnemyGroup/Enemy2"]
+scale = Vector2(0.182, 0.182)
+texture = ExtResource("4_enemy")
+
+[node name="BattleUI" type="CanvasLayer" parent="."]
+
+[node name="Root" type="Control" parent="BattleUI"]
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+
+[node name="TopHUD" type="Panel" parent="BattleUI/Root"]
+offset_left = 24.0
+offset_top = 10.0
+offset_right = 1256.0
+offset_bottom = 48.0
+theme_override_styles/panel = SubResource("StyleBoxFlat_hud")
+
+[node name="Label" type="Label" parent="BattleUI/Root/TopHUD"]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+theme_override_colors/font_color = Color(0.76, 0.74, 0.7, 0.82)
+theme_override_font_sizes/font_size = 18
+text = "顶部 HUD（细条）"
+horizontal_alignment = 1
+vertical_alignment = 1
+
+[node name="UnitOverlay" type="Control" parent="BattleUI/Root"]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+
+[node name="Spirit2HP" type="ProgressBar" parent="BattleUI/Root/UnitOverlay"]
+offset_left = 131.0
+offset_top = 466.0
+offset_right = 249.0
+offset_bottom = 479.0
+theme_override_styles/background = SubResource("StyleBoxFlat_bar_bg")
+theme_override_styles/fill = SubResource("StyleBoxFlat_hp_green")
+value = 80.0
+show_percentage = false
+
+[node name="HPText" type="Label" parent="BattleUI/Root/UnitOverlay/Spirit2HP"]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+theme_override_colors/font_color = Color(1, 1, 1, 1)
+theme_override_colors/font_outline_color = Color(0, 0, 0, 0.95)
+theme_override_constants/outline_size = 3
+theme_override_font_sizes/font_size = 10
+text = "80/100"
+horizontal_alignment = 1
+vertical_alignment = 1
+
+[node name="Spirit2StatusIcons" type="HBoxContainer" parent="BattleUI/Root/UnitOverlay"]
+offset_left = 131.0
+offset_top = 485.0
+offset_right = 161.0
+offset_bottom = 498.0
+theme_override_constants/separation = 4
+
+[node name="EmptySlot1" type="Panel" parent="BattleUI/Root/UnitOverlay/Spirit2StatusIcons"]
+custom_minimum_size = Vector2(13, 13)
+layout_mode = 2
+theme_override_styles/panel = SubResource("StyleBoxFlat_status_slot")
+
+[node name="EmptySlot2" type="Panel" parent="BattleUI/Root/UnitOverlay/Spirit2StatusIcons"]
+custom_minimum_size = Vector2(13, 13)
+layout_mode = 2
+theme_override_styles/panel = SubResource("StyleBoxFlat_status_slot")
+
+[node name="Spirit1HP" type="ProgressBar" parent="BattleUI/Root/UnitOverlay"]
+offset_left = 295.0
+offset_top = 484.0
+offset_right = 455.0
+offset_bottom = 497.0
+theme_override_styles/background = SubResource("StyleBoxFlat_bar_bg")
+theme_override_styles/fill = SubResource("StyleBoxFlat_hp_green")
+value = 80.0
+show_percentage = false
+
+[node name="HPText" type="Label" parent="BattleUI/Root/UnitOverlay/Spirit1HP"]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+theme_override_colors/font_color = Color(1, 1, 1, 1)
+theme_override_colors/font_outline_color = Color(0, 0, 0, 0.95)
+theme_override_constants/outline_size = 3
+theme_override_font_sizes/font_size = 10
+text = "80/100"
+horizontal_alignment = 1
+vertical_alignment = 1
+
+[node name="Spirit1StatusIcons" type="HBoxContainer" parent="BattleUI/Root/UnitOverlay"]
+offset_left = 295.0
+offset_top = 503.0
+offset_right = 325.0
+offset_bottom = 516.0
+theme_override_constants/separation = 4
+
+[node name="EmptySlot1" type="Panel" parent="BattleUI/Root/UnitOverlay/Spirit1StatusIcons"]
+custom_minimum_size = Vector2(13, 13)
+layout_mode = 2
+theme_override_styles/panel = SubResource("StyleBoxFlat_status_slot")
+
+[node name="EmptySlot2" type="Panel" parent="BattleUI/Root/UnitOverlay/Spirit1StatusIcons"]
+custom_minimum_size = Vector2(13, 13)
+layout_mode = 2
+theme_override_styles/panel = SubResource("StyleBoxFlat_status_slot")
+
+[node name="Enemy1Intent" type="HBoxContainer" parent="BattleUI/Root/UnitOverlay"]
+offset_left = 805.0
+offset_top = 250.0
+offset_right = 879.0
+offset_bottom = 284.0
+theme_override_constants/separation = 6
+
+[node name="Current" type="Panel" parent="BattleUI/Root/UnitOverlay/Enemy1Intent"]
+custom_minimum_size = Vector2(34, 34)
+layout_mode = 2
+theme_override_styles/panel = SubResource("StyleBoxFlat_intent_slot")
+
+[node name="Label" type="Label" parent="BattleUI/Root/UnitOverlay/Enemy1Intent/Current"]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+theme_override_colors/font_color = Color(1, 0.22, 0.22, 0.95)
+theme_override_font_sizes/font_size = 14
+text = "本"
+horizontal_alignment = 1
+vertical_alignment = 1
+
+[node name="Next" type="Panel" parent="BattleUI/Root/UnitOverlay/Enemy1Intent"]
+custom_minimum_size = Vector2(34, 34)
+layout_mode = 2
+theme_override_styles/panel = SubResource("StyleBoxFlat_intent_slot")
+
+[node name="Label" type="Label" parent="BattleUI/Root/UnitOverlay/Enemy1Intent/Next"]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+theme_override_colors/font_color = Color(1, 0.22, 0.22, 0.95)
+theme_override_font_sizes/font_size = 14
+text = "下"
+horizontal_alignment = 1
+vertical_alignment = 1
+
+[node name="Enemy1HP" type="ProgressBar" parent="BattleUI/Root/UnitOverlay"]
+offset_left = 737.0
+offset_top = 482.0
+offset_right = 947.0
+offset_bottom = 495.0
+theme_override_styles/background = SubResource("StyleBoxFlat_bar_bg")
+theme_override_styles/fill = SubResource("StyleBoxFlat_hp_red")
+value = 80.0
+show_percentage = false
+
+[node name="HPText" type="Label" parent="BattleUI/Root/UnitOverlay/Enemy1HP"]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+theme_override_colors/font_color = Color(1, 1, 1, 1)
+theme_override_colors/font_outline_color = Color(0, 0, 0, 0.95)
+theme_override_constants/outline_size = 3
+theme_override_font_sizes/font_size = 10
+text = "80/100"
+horizontal_alignment = 1
+vertical_alignment = 1
+
+[node name="Enemy1TargetButton" type="Button" parent="BattleUI/Root/UnitOverlay"]
+offset_left = 710.0
+offset_top = 250.0
+offset_right = 972.0
+offset_bottom = 512.0
+mouse_default_cursor_shape = 2
+focus_mode = 0
+theme_override_styles/normal = SubResource("StyleBoxFlat_transparent_target")
+theme_override_styles/hover = SubResource("StyleBoxFlat_transparent_target")
+theme_override_styles/pressed = SubResource("StyleBoxFlat_transparent_target")
+theme_override_styles/disabled = SubResource("StyleBoxFlat_transparent_target")
+theme_override_styles/focus = SubResource("StyleBoxFlat_transparent_target")
+flat = true
+
+[node name="Enemy2Intent" type="HBoxContainer" parent="BattleUI/Root/UnitOverlay"]
+visible = false
+offset_left = 1043.0
+offset_top = 250.0
+offset_right = 1117.0
+offset_bottom = 284.0
+theme_override_constants/separation = 6
+
+[node name="Current" type="Panel" parent="BattleUI/Root/UnitOverlay/Enemy2Intent"]
+custom_minimum_size = Vector2(34, 34)
+layout_mode = 2
+theme_override_styles/panel = SubResource("StyleBoxFlat_intent_slot")
+
+[node name="Label" type="Label" parent="BattleUI/Root/UnitOverlay/Enemy2Intent/Current"]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+theme_override_colors/font_color = Color(1, 0.22, 0.22, 0.95)
+theme_override_font_sizes/font_size = 14
+text = "本"
+horizontal_alignment = 1
+vertical_alignment = 1
+
+[node name="Next" type="Panel" parent="BattleUI/Root/UnitOverlay/Enemy2Intent"]
+custom_minimum_size = Vector2(34, 34)
+layout_mode = 2
+theme_override_styles/panel = SubResource("StyleBoxFlat_intent_slot")
+
+[node name="Label" type="Label" parent="BattleUI/Root/UnitOverlay/Enemy2Intent/Next"]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+theme_override_colors/font_color = Color(1, 0.22, 0.22, 0.95)
+theme_override_font_sizes/font_size = 14
+text = "下"
+horizontal_alignment = 1
+vertical_alignment = 1
+
+[node name="Enemy2HP" type="ProgressBar" parent="BattleUI/Root/UnitOverlay"]
+visible = false
+offset_left = 975.0
+offset_top = 482.0
+offset_right = 1185.0
+offset_bottom = 495.0
+theme_override_styles/background = SubResource("StyleBoxFlat_bar_bg")
+theme_override_styles/fill = SubResource("StyleBoxFlat_hp_red")
+value = 80.0
+show_percentage = false
+
+[node name="HPText" type="Label" parent="BattleUI/Root/UnitOverlay/Enemy2HP"]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+theme_override_colors/font_color = Color(1, 1, 1, 1)
+theme_override_colors/font_outline_color = Color(0, 0, 0, 0.95)
+theme_override_constants/outline_size = 3
+theme_override_font_sizes/font_size = 10
+text = "80/100"
+horizontal_alignment = 1
+vertical_alignment = 1
+
+[node name="HandArea" type="Control" parent="BattleUI/Root"]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+
+[node name="ResultLabel" type="Label" parent="BattleUI/Root"]
+visible = false
+layout_mode = 1
+anchors_preset = 8
+anchor_left = 0.5
+anchor_top = 0.5
+anchor_right = 0.5
+anchor_bottom = 0.5
+offset_left = -160.0
+offset_top = -72.0
+offset_right = 160.0
+offset_bottom = 16.0
+grow_horizontal = 2
+grow_vertical = 2
+theme_override_colors/font_color = Color(1, 0.94, 0.72, 1)
+theme_override_colors/font_outline_color = Color(0, 0, 0, 0.92)
+theme_override_constants/outline_size = 6
+theme_override_font_sizes/font_size = 52
+horizontal_alignment = 1
+vertical_alignment = 1
+
+[node name="BottomLeft" type="Control" parent="BattleUI/Root"]
+layout_mode = 1
+anchors_preset = 12
+anchor_top = 1.0
+anchor_bottom = 1.0
+offset_top = -190.0
+offset_right = 320.0
+grow_vertical = 0
+mouse_filter = 2
+
+[node name="DeckPile" type="Panel" parent="BattleUI/Root/BottomLeft"]
+offset_left = 24.0
+offset_top = 136.0
+offset_right = 138.0
+offset_bottom = 188.0
+theme_override_styles/panel = SubResource("StyleBoxFlat_pile")
+
+[node name="Label" type="Label" parent="BattleUI/Root/BottomLeft/DeckPile"]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+theme_override_colors/font_color = Color(0.88, 0.86, 0.82, 0.95)
+theme_override_font_sizes/font_size = 18
+text = "卡组12"
+horizontal_alignment = 1
+vertical_alignment = 1
+
+[node name="EnergyOrb" type="Panel" parent="BattleUI/Root/BottomLeft"]
+offset_left = 46.0
+offset_top = 20.0
+offset_right = 150.0
+offset_bottom = 124.0
+theme_override_styles/panel = SubResource("StyleBoxFlat_energy")
+
+[node name="Label" type="Label" parent="BattleUI/Root/BottomLeft/EnergyOrb"]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+theme_override_colors/font_color = Color(0.52, 0.45, 1, 1)
+theme_override_font_sizes/font_size = 30
+text = "3/3"
+horizontal_alignment = 1
+vertical_alignment = 1
+
+[node name="BottomRight" type="Control" parent="BattleUI/Root"]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+
+[node name="EndTurnButton" type="Button" parent="BattleUI/Root/BottomRight"]
+offset_left = 988.0
+offset_top = 594.0
+offset_right = 1188.0
+offset_bottom = 648.0
+theme_override_font_sizes/font_size = 22
+theme_override_styles/normal = SubResource("StyleBoxFlat_button_normal")
+theme_override_styles/hover = SubResource("StyleBoxFlat_button_hover")
+theme_override_styles/pressed = SubResource("StyleBoxFlat_button_normal")
+text = "结束回合"
+
+[node name="ExhaustCount" type="Panel" parent="BattleUI/Root/BottomRight"]
+offset_left = 1144.0
+offset_top = 548.0
+offset_right = 1196.0
+offset_bottom = 600.0
+theme_override_styles/panel = SubResource("StyleBoxFlat_purple_circle")
+
+[node name="Label" type="Label" parent="BattleUI/Root/BottomRight/ExhaustCount"]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+theme_override_colors/font_color = Color(1, 1, 1, 1)
+theme_override_font_sizes/font_size = 20
+text = "0"
+horizontal_alignment = 1
+vertical_alignment = 1
+
+[node name="DiscardPile" type="Panel" parent="BattleUI/Root/BottomRight"]
+offset_left = 1158.0
+offset_top = 660.0
+offset_right = 1256.0
+offset_bottom = 708.0
+theme_override_styles/panel = SubResource("StyleBoxFlat_pile")
+
+[node name="Label" type="Label" parent="BattleUI/Root/BottomRight/DiscardPile"]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+theme_override_colors/font_color = Color(0.88, 0.86, 0.82, 0.95)
+theme_override_font_sizes/font_size = 18
+text = "弃牌0"
+horizontal_alignment = 1
+vertical_alignment = 1

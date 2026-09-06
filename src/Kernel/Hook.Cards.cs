@@ -28,15 +28,16 @@ public static partial class Hook
             if (StillValid(l)) await l.AfterCardPlayed(card, target);
     }
 
+    public static async Task BeforeCardPlayed(CombatState state, CardModel card, Creature? target)
+    {
+        foreach (GameModel l in Snapshot(state))
+            if (StillValid(l))
+                await l.BeforeCardPlayed(card, target);
+    }
+
     public static async Task AfterCardGenerated(CombatState state, CardModel card)
     {
         foreach (GameModel l in Snapshot(state))
             if (StillValid(l)) await l.AfterCardGenerated(card);
-    }
-
-    public static async Task AfterNihilityTriggered(CombatState state, Player player)
-    {
-        foreach (GameModel l in Snapshot(state))
-            if (StillValid(l)) await l.AfterNihilityTriggered(player);
     }
 }

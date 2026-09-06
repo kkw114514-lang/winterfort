@@ -1,9 +1,27 @@
-bin/
-obj/
+# Operating-system and editor files
+.DS_Store
 .vs/
 .idea/
+.vscode/
 *.user
+*.suo
 
-# Godot
-rouge-2.0/.godot/
+# .NET build output
+bin/
+obj/
+TestResults/
+
+# Godot generated data
+**/.godot/
 rouge-2.0/android/
+
+# Local output and temporary files
+outputs/
+*.log
+*.tmp
+*.zip
+
+# Local secrets
+.env
+.env.*
+!.env.example

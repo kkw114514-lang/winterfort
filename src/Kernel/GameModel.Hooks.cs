@@ -62,4 +62,21 @@ public abstract partial class GameModel
 
     /// <summary>只发给否决死亡的那一个监听者（和 ShouldDie 配对）。</summary>
     public virtual Task AfterPreventingDeath(Creature creature) => Task.CompletedTask;
+
+    /// <summary>实际扣血之后(裁定4:每一跳一次;全挡不发;裸血也发)。烈性之家。恒元:空转。</summary>
+    public virtual Task AfterHpLost(Creature target, int amount) => Task.CompletedTask;
+
+    /// <summary>buff 施加量修正(只挂 Apply 正门;canonical 是身份牌,只读)。
+    /// 持炎之环/炽烈之家。恒元:原量返回。</summary>
+    public virtual int ModifyBuffApplyAmount(Creature target, BuffModel canonical, int amount, CardModel? source) => amount;
+
+    /// <summary>【S2 全局费用钩】折叠改一张卡的当前费用（狂涌/无双乱舞/燎原从这进）。
+    /// 出口 Max(0) 在 CardModel.Cost，这里只管折叠。</summary>
+    public virtual int ModifyEnergyCost(CardModel card, int cost) => cost;
+
+    /// <summary>【多重打出】折叠一次打出的执行次数（STS2 DuplicationPower 判例）。</summary>
+    public virtual int ModifyCardPlayCount(CardModel card, Creature? target, int playCount) => playCount;
+
+    /// <summary>你改了 playCount 之后的消耗回调（Duplication 在这自减一层）。只发给修改者。</summary>
+    public virtual Task AfterModifyingCardPlayCount(CardModel card) => Task.CompletedTask;
 }

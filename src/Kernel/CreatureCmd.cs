@@ -95,6 +95,8 @@ public static class CreatureCmd
             {
                 await Hook.AfterDamageReceived(state, r.Receiver, r, props, dealer, source);
                 await Hook.AfterDamageGiven(state, dealer, r, props, r.Receiver, source);
+                if (r.UnblockedDamage > 0)
+                    await Hook.AfterHpLost(state, r.Receiver, r.UnblockedDamage);
             }
 
             // 死亡结算
@@ -147,6 +149,10 @@ public static class CreatureCmd
     public static async Task LoseHp(CombatState state, Creature creature, int amount)
     {
         if (creature.IsDead || amount <= 0) return;
+        // 【背水狂炎判例=珊瑚 HardenedShellPower】钳位层管一切血损：
+        // "裸"只免修正（力量/灼伤/护盾），不免末段钳位——同 STS2 血损也过 OstyLate 层。
+        amount = Hook.ModifyHpLostAfterPet(state, creature, amount, ValueProp.None, null, null, out _);
+        if (amount <= 0) return;
         DamageResult r = creature.LoseHpInternal(amount, ValueProp.None);
         state.Events.Emit(new HpLost
         {
@@ -155,7 +161,16 @@ public static class CreatureCmd
         });
         Fx.Vfx("hp_loss", creature);
         await Fx.CustomScaledWait(0.05f, 0.1f);
+        await Hook.AfterHpLost(state, creature, r.UnblockedDamage);
         if (r.WasTargetKilled) await Die(state, creature, null, null);
+    }
+
+    /// <summary>消灭(裁定9):血量清零(裸)后直接进死亡流程——真死亡,遗言/终期爆炸照触发;不发伤害/失去生命事件。</summary>
+    public static async Task Annihilate(CombatState state, Creature target, Creature? killer, CardModel? source)
+    {
+        if (target.IsDead) return;
+        target.LoseHpInternal(target.CurrentHp, ValueProp.None);   // 先清零:裸改,不走管线、不发伤害事件——消灭不是伤害;IsDead 由此为真
+        await Die(state, target, killer, source);
     }
 
     /// <summary>死亡流程。返回 false = 被 ShouldDie 一票否决。
